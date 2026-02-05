@@ -1,0 +1,61 @@
+<script setup lang="ts">
+import { ref } from 'vue';
+import { invoke } from '@tauri-apps/api/core';
+
+const props = defineProps<{ user: any, session: any }>();
+const password = ref('');
+const error = ref('');
+const loading = ref(false);
+
+const login = async () => {
+    if (!props.user || !props.session) {
+        error.value = "Please select a user and session.";
+        return;
+    }
+    loading.value = true;
+    error.value = '';
+    
+    try {
+        const res: any = await invoke('authenticate', { 
+            username: props.user.name, 
+            password: password.value 
+        });
+        
+        if (res.success) {
+            // Launch
+            await invoke('launch_session', {
+                username: props.user.name,
+                cmd: props.session.exec,
+                sessionType: props.session.session_type
+            });
+        } else {
+            error.value = res.message;
+            password.value = ''; // Clear password on failure
+        }
+    } catch (e) {
+        error.value = String(e);
+    } finally {
+        loading.value = false;
+    }
+};
+</script>
+<template>
+    <div class="flex flex-col gap-4 w-full max-w-sm">
+        <div>
+            <label class="text-xs font-semibold text-gray-500 uppercase mb-1 block">Password</label>
+            <input type="password" v-model="password" 
+                @keyup.enter="login"
+                class="p-2 border border-gray-300 rounded-lg w-full focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent" 
+                placeholder="Enter password..." />
+        </div>
+        
+        <div v-if="error" class="text-red-500 text-sm bg-red-50 p-2 rounded border border-red-200">
+            {{ error }}
+        </div>
+        
+        <button @click="login" :disabled="loading || !user" 
+                class="bg-blue-600 text-white font-semibold py-2 px-4 rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-sm">
+            {{ loading ? 'Authenticating...' : 'Login' }}
+        </button>
+    </div>
+</template>
