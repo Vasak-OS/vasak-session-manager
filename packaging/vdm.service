@@ -1,0 +1,12 @@
+[Unit]
+Description=VasakOS Display Manager
+After=systemd-user-sessions.service plymouth-quit-wait.service
+Conflicts=getty@tty7.service plymouth-quit.service
+
+[Service]
+ExecStart=/usr/bin/vdm-launch
+Restart=always
+Alias=display-manager.service
+
+[Install]
+WantedBy=multi-user.target
