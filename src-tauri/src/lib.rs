@@ -1,5 +1,11 @@
 #[path = "./commands/icons.rs"]
 mod icons;
+#[path = "./commands/users.rs"]
+mod users;
+#[path = "./commands/sessions.rs"]
+mod sessions;
+#[path = "./commands/auth.rs"]
+mod auth;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -9,7 +15,11 @@ pub fn run() {
         .plugin(tauri_plugin_vicons::init())
         .invoke_handler(tauri::generate_handler![
             icons::get_icon_base64,
-            icons::get_symbol_base64
+            icons::get_symbol_base64,
+            users::get_users,
+            sessions::get_sessions,
+            auth::authenticate,
+            auth::launch_session
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
