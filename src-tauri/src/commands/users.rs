@@ -1,4 +1,5 @@
-use users::{AllUsers, Users, UsersCache};
+use users::all_users;
+use users::os::unix::UserExt;
 use serde::Serialize;
 
 #[derive(Serialize)]
@@ -13,10 +14,13 @@ pub struct SystemUser {
 
 #[tauri::command]
 pub fn get_users() -> Vec<SystemUser> {
-    let cache = UsersCache::new();
+    // List users
     let mut users_list = Vec::new();
 
-    for user in cache.iter() {
+    // Use unsafe all_users iterator as per users 0.11
+    let iter = unsafe { all_users() };
+    
+    for user in iter {
         let uid = user.uid();
         // Standard Linux logic: UID >= 1000 are usually human users (except nobody/nogroup)
         // Adjust filter as needed. VasakOS might have specific conventions.

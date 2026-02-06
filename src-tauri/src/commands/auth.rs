@@ -1,9 +1,8 @@
-use pam_auth::Authenticator;
+use pam::Client;
 use serde::Serialize;
 use std::process::Command;
 use std::os::unix::process::CommandExt;
-use nix::unistd::{Uid, Gid, User, Group};
-use std::ffi::CString;
+use nix::unistd::{Uid, User};
 
 #[derive(Serialize)]
 pub struct AuthResult {
@@ -19,18 +18,22 @@ pub fn authenticate(username: String, password: String) -> AuthResult {
     // We'll use "login" for broad compatibility if "vdm" is not present, but better "vdm" or "system-auth".
     // pam-auth defaults to "system-auth"? No, constructor needs service name.
     
-    // Using "login" service usually works for simple auth tests on Linux.
-    let service = "login"; 
+    // Using "login" or "system-auth".
+    let service = "login";
     
-    match Authenticator::with_password(&service) {
-        Ok(mut auth) => {
-            auth.get_handler().set_credentials(&username, &password);
-            match auth.authenticate() {
-                Ok(_) => AuthResult { success: true, message: "Authenticated".to_string() },
-                Err(e) => AuthResult { success: false, message: format!("Auth failed: {}", e) },
-            }
-        },
-        Err(e) => AuthResult { success: false, message: format!("PAM init failed: {}", e) },
+    // Create a PAM client with password conversation
+    let mut client = match Client::with_password(service) {
+        Ok(c) => c,
+        Err(e) => return AuthResult { success: false, message: format!("PAM init failed: {:?}", e) },
+    };
+
+    // Set credentials
+    client.conversation_mut().set_credentials(username, password);
+
+    // Authenticate
+    match client.authenticate() {
+        Ok(_) => AuthResult { success: true, message: "Authenticated".to_string() },
+        Err(e) => AuthResult { success: false, message: format!("Auth failed: {:?}", e) },
     }
 }
 
@@ -92,10 +95,8 @@ pub fn launch_session(username: String, cmd: String, session_type: String) -> Re
     child.env("XDG_RUNTIME_DIR", &runtime_dir);
     // PATH? Keep system path or user specific? Usually allow shell to set or keep inherited + additions.
     
-    unsafe {
-        child.uid(uid.as_raw());
-        child.gid(gid.as_raw());
-    }
+    child.uid(uid.as_raw());
+    child.gid(gid.as_raw());
     
     // Detach? We might want to wait or just spawn.
     // If we block verify, the UI freezes.
