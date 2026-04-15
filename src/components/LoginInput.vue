@@ -42,19 +42,19 @@ const login = async () => {
 <template>
     <div class="flex flex-col gap-4 w-full max-w-sm">
         <div>
-            <label class="text-xs font-semibold text-gray-500 uppercase mb-1 block">Password</label>
+            <label class="text-xs font-semibold text-tx-main uppercase mb-1 block">Password</label>
             <input type="password" v-model="password" 
                 @keyup.enter="login"
-                class="p-2 border border-gray-300 rounded-lg w-full focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent" 
+                class="p-2 border border-ui-border rounded-corner w-full focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent" 
                 placeholder="Enter password..." />
         </div>
         
-        <div v-if="error" class="text-red-500 text-sm bg-red-50 p-2 rounded border border-red-200">
+        <div v-if="error" class="text-red-500 text-sm bg-red-50 p-2 rounded-corner border border-red-200">
             {{ error }}
         </div>
         
         <button @click="login" :disabled="loading || !user" 
-                class="bg-blue-600 text-white font-semibold py-2 px-4 rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-sm">
+                class="bg-blue-600 text-white font-semibold py-2 px-4 rounded-corner hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-sm">
             {{ loading ? 'Authenticating...' : 'Login' }}
         </button>
     </div>

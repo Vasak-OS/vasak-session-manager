@@ -27,13 +27,13 @@ onMounted(async () => {
 </script>
 <template>
     <div class="w-full max-w-sm">
-        <label class="text-xs font-semibold text-gray-500 uppercase mb-1 block">Session</label>
+        <label class="text-xs font-semibold text-tx-main uppercase mb-1 block">Session</label>
         <select :value="modelValue?.id" 
                 @change="e => {
                     const s = sessions.find(s => s.id === (e.target as HTMLSelectElement).value);
                     if(s) $emit('update:modelValue', s);
                 }"
-                class="p-2 border border-gray-300 rounded-lg w-full bg-white text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+                class="p-2 border border-ui-border rounded-corner w-full bg-ui-bg/80 text-text-main focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent">
             <option v-for="s in sessions" :key="s.id" :value="s.id">
                 {{ s.name }} ({{ s.session_type }})
             </option>

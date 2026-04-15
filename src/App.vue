@@ -9,13 +9,13 @@ const selectedSession = ref(null);
 </script>
 
 <template>
-  <main class="min-h-screen flex items-center justify-center bg-gray-50">
+  <main class="min-h-screen flex items-center justify-center bg-ui-surface">
     <!-- Center Card -->
-    <div class="bg-white p-8 rounded-2xl shadow-xl w-full max-w-4xl flex flex-col md:flex-row gap-8 min-h-[500px]">
+    <div class="bg-ui-bg/80 p-8 rounded-corner shadow-xl w-full max-w-4xl flex flex-col md:flex-row gap-8 min-h-[500px]">
         
         <!-- Left: User Selection -->
-        <div class="flex-1 flex flex-col border-r border-gray-100 pr-8">
-            <h1 class="text-2xl font-bold text-gray-900 mb-6">VasakOS</h1>
+        <div class="flex-1 flex flex-col border-r border-ui-border pr-8">
+            <h1 class="text-2xl font-bold text-text-main mb-6">VasakOS</h1>
             <UserSelector v-model="selectedUser" />
         </div>
 
