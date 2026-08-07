@@ -16,24 +16,18 @@ const login = async () => {
     error.value = '';
     
     try {
-        const res: any = await invoke('authenticate', { 
-            username: props.user.name, 
-            password: password.value 
+        // Drive greetd: authenticate + start the session. On success greetd
+        // tears this greeter down and starts the session, so this call may not
+        // return; any rejection is an auth/session error to surface.
+        await invoke('login', {
+            username: props.user.name,
+            password: password.value,
+            cmd: props.session.exec,
+            sessionType: props.session.session_type,
         });
-        
-        if (res.success) {
-            // Launch
-            await invoke('launch_session', {
-                username: props.user.name,
-                cmd: props.session.exec,
-                sessionType: props.session.session_type
-            });
-        } else {
-            error.value = res.message;
-            password.value = ''; // Clear password on failure
-        }
     } catch (e) {
         error.value = String(e);
+        password.value = ''; // Clear password on failure
     } finally {
         loading.value = false;
     }

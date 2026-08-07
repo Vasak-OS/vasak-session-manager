@@ -20,8 +20,7 @@ pub fn run() {
             icons::get_symbol_base64,
             users::get_users,
             sessions::get_sessions,
-            auth::authenticate,
-            auth::launch_session,
+            auth::login,
             power::poweroff,
             power::reboot,
             power::suspend

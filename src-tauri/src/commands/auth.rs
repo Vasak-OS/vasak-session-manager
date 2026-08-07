@@ -1,54 +1,56 @@
-use pam::Client;
-use serde::Serialize;
-use std::ffi::CString;
-use std::os::unix::process::CommandExt;
-use std::process::Command;
+//! greetd IPC client.
+//!
+//! vasak-session-manager runs as an unprivileged greetd greeter. It does NOT do
+//! PAM or privilege dropping itself — it collects the username/password/session
+//! and drives greetd over its Unix-socket JSON protocol (`$GREETD_SOCK`). greetd
+//! (running as root) owns the PAM transaction, the seat and the TTY, and starts
+//! the user session after this process exits.
 
-use nix::unistd::{initgroups, setgid, setuid, Uid, User};
-
-/// PAM service name. Ships as /etc/pam.d/vasak-session-manager (see packaging).
-const PAM_SERVICE: &str = "vasak-session-manager";
+use serde::{Deserialize, Serialize};
+use std::io::{Read, Write};
+use std::os::unix::net::UnixStream;
 
 #[derive(Serialize)]
-pub struct AuthResult {
-    success: bool,
-    message: String,
+#[serde(tag = "type", rename_all = "snake_case")]
+enum Request {
+    CreateSession { username: String },
+    PostAuthMessageResponse { response: Option<String> },
+    StartSession { cmd: Vec<String>, env: Vec<String> },
+    CancelSession,
 }
 
-#[tauri::command]
-pub fn authenticate(username: String, password: String) -> AuthResult {
-    let mut client = match Client::with_password(PAM_SERVICE) {
-        Ok(c) => c,
-        Err(e) => {
-            return AuthResult {
-                success: false,
-                message: format!("PAM init failed: {:?}", e),
-            }
-        }
-    };
-
-    client.conversation_mut().set_credentials(username, password);
-
-    match client.authenticate() {
-        Ok(_) => AuthResult {
-            success: true,
-            message: "Authenticated".to_string(),
-        },
-        Err(e) => AuthResult {
-            success: false,
-            message: format!("Auth failed: {:?}", e),
-        },
-    }
+#[derive(Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+enum Response {
+    Success,
+    Error {
+        error_type: String,
+        description: String,
+    },
+    AuthMessage {
+        auth_message_type: String,
+        auth_message: String,
+    },
 }
 
-/// Map a nix errno to an io::Error for use inside `pre_exec`.
-fn nix_to_io(e: nix::Error) -> std::io::Error {
-    std::io::Error::from_raw_os_error(e as i32)
+/// Send one request and read one response. Messages are a native-endian u32
+/// length prefix followed by the JSON payload.
+fn roundtrip(stream: &mut UnixStream, req: &Request) -> Result<Response, String> {
+    let payload = serde_json::to_vec(req).map_err(|e| e.to_string())?;
+    let len = (payload.len() as u32).to_ne_bytes();
+    stream.write_all(&len).map_err(|e| e.to_string())?;
+    stream.write_all(&payload).map_err(|e| e.to_string())?;
+
+    let mut len_buf = [0u8; 4];
+    stream.read_exact(&mut len_buf).map_err(|e| e.to_string())?;
+    let n = u32::from_ne_bytes(len_buf) as usize;
+    let mut buf = vec![0u8; n];
+    stream.read_exact(&mut buf).map_err(|e| e.to_string())?;
+    serde_json::from_slice(&buf).map_err(|e| e.to_string())
 }
 
-/// Strip XDG desktop-entry field codes (e.g. `%U`, `%k`, `%i`) from an Exec
-/// line, collapsing `%%` to `%`. Session `Exec=` lines usually have none, but
-/// stripping them avoids passing bogus arguments to the compositor.
+/// Strip XDG desktop-entry field codes (e.g. `%U`, `%k`) from an Exec line,
+/// collapsing `%%` to `%`.
 fn strip_field_codes(cmd: &str) -> Vec<String> {
     cmd.split_whitespace()
         .filter_map(|tok| {
@@ -61,58 +63,73 @@ fn strip_field_codes(cmd: &str) -> Vec<String> {
         .collect()
 }
 
+/// Authenticate `username` and start `cmd` via greetd. On success this process
+/// exits so greetd can start the session; on failure it returns the error.
 #[tauri::command]
-pub fn launch_session(username: String, cmd: String, session_type: String) -> Result<(), String> {
-    let user = User::from_name(&username)
-        .map_err(|e| format!("Lookup failed: {}", e))?
-        .ok_or("User not found")?;
+pub fn login(
+    username: String,
+    password: String,
+    cmd: String,
+    session_type: String,
+) -> Result<(), String> {
+    let sock = std::env::var("GREETD_SOCK")
+        .map_err(|_| "GREETD_SOCK not set (not running under greetd)".to_string())?;
+    let mut stream =
+        UnixStream::connect(&sock).map_err(|e| format!("cannot connect to greetd: {e}"))?;
 
-    // Launching a session requires root to drop to the target user.
-    if !Uid::current().is_root() {
-        return Err("vasak-session-manager backend must run as root to launch sessions.".to_string());
+    let mut resp = roundtrip(
+        &mut stream,
+        &Request::CreateSession {
+            username: username.clone(),
+        },
+    )?;
+
+    // Answer the PAM conversation. For password auth this is a single `secret`
+    // prompt, but handle the general case defensively.
+    let mut password = Some(password);
+    loop {
+        match resp {
+            Response::AuthMessage {
+                auth_message_type,
+                auth_message,
+            } => {
+                let reply = match auth_message_type.as_str() {
+                    "secret" => password.take(),
+                    "visible" => Some(username.clone()),
+                    _ => {
+                        // info / error: surface the text (e.g. account expiry) and
+                        // acknowledge with no input.
+                        eprintln!("[greetd:{auth_message_type}] {auth_message}");
+                        None
+                    }
+                };
+                resp = roundtrip(&mut stream, &Request::PostAuthMessageResponse { response: reply })?;
+            }
+            Response::Success => break,
+            Response::Error {
+                error_type,
+                description,
+            } => {
+                let _ = roundtrip(&mut stream, &Request::CancelSession);
+                return Err(format!("{error_type}: {description}"));
+            }
+        }
     }
 
-    let uid = user.uid;
-    let gid = user.gid;
-    let home = user.dir.clone();
-    let shell = user.shell.clone();
-    let runtime_dir = format!("/run/user/{}", uid.as_raw());
-
-    let parts = strip_field_codes(&cmd);
-    let program = parts.first().ok_or("Empty command")?.clone();
-    let args: Vec<String> = parts.into_iter().skip(1).collect();
-
-    let mut command = Command::new(&program);
-    command
-        .args(&args)
-        .env("USER", &username)
-        .env("LOGNAME", &username)
-        .env("HOME", &home)
-        .env("SHELL", &shell)
-        .env("XDG_RUNTIME_DIR", &runtime_dir)
-        .env("XDG_SESSION_TYPE", &session_type);
-
-    // Drop privileges in the child in the correct order: initialise the user's
-    // supplementary groups and set the gid *while still root*, then drop the uid
-    // last. Rust's Command::uid/gid do NOT set supplementary groups, so a user
-    // launched that way would lose audio/video/input/wheel membership.
-    let user_c = CString::new(username.clone()).map_err(|_| "invalid username".to_string())?;
-    unsafe {
-        command.pre_exec(move || {
-            initgroups(&user_c, gid).map_err(nix_to_io)?;
-            setgid(gid).map_err(nix_to_io)?;
-            setuid(uid).map_err(nix_to_io)?;
-            Ok(())
-        });
+    let cmd_vec = strip_field_codes(&cmd);
+    if cmd_vec.is_empty() {
+        let _ = roundtrip(&mut stream, &Request::CancelSession);
+        return Err("Empty session command".to_string());
     }
+    let env = vec![format!("XDG_SESSION_TYPE={session_type}")];
 
-    // NOTE: this spawns the session as a child of the greeter and does NOT open
-    // a PAM session (pam_open_session/setcred) nor hand off the TTY/DRM master
-    // from cage to the new compositor. A robust greeter needs a persistent root
-    // session daemon (greetd-style) to own the PAM transaction and the seat.
-    // Tracked as a pending architectural decision.
-    command
-        .spawn()
-        .map(|_| ())
-        .map_err(|e| format!("Failed to launch: {}", e))
+    match roundtrip(&mut stream, &Request::StartSession { cmd: cmd_vec, env })? {
+        // greetd starts the session once this greeter exits.
+        Response::Success => std::process::exit(0),
+        Response::Error {
+            error_type,
+            description,
+        } => Err(format!("{error_type}: {description}")),
+        Response::AuthMessage { .. } => Err("unexpected auth message after start".to_string()),
+    }
 }
