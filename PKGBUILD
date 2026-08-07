@@ -28,4 +28,6 @@ package() {
         "$pkgdir/usr/bin/$pkgname-launch"
     install -Dm644 "packaging/$pkgname.service" \
         "$pkgdir/usr/lib/systemd/system/$pkgname.service"
+    install -Dm644 "packaging/$pkgname.pam" \
+        "$pkgdir/etc/pam.d/$pkgname"
 }

@@ -1,0 +1,16 @@
+#%PAM-1.0
+# PAM stack for the VasakOS session manager (greeter / display manager).
+# Installed as /etc/pam.d/vasak-session-manager.
+
+auth       include   system-login
+# Capture the login password to auto-unlock the vasak keyring (optional: login
+# still succeeds if the keyring module is absent or fails).
+auth       optional  pam_vasak_keyring.so
+
+account    include   system-login
+
+password   include   system-login
+
+session    include   system-login
+# Unlock the vasak keyring for the session using the captured password.
+session    optional  pam_vasak_keyring.so

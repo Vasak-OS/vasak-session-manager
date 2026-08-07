@@ -1,8 +1,13 @@
 use pam::Client;
 use serde::Serialize;
-use std::process::Command;
+use std::ffi::CString;
 use std::os::unix::process::CommandExt;
-use nix::unistd::{Uid, User};
+use std::process::Command;
+
+use nix::unistd::{initgroups, setgid, setuid, Uid, User};
+
+/// PAM service name. Ships as /etc/pam.d/vasak-session-manager (see packaging).
+const PAM_SERVICE: &str = "vasak-session-manager";
 
 #[derive(Serialize)]
 pub struct AuthResult {
@@ -12,98 +17,102 @@ pub struct AuthResult {
 
 #[tauri::command]
 pub fn authenticate(username: String, password: String) -> AuthResult {
-    // Note: This requires the process to be able to use PAM. 
-    // Usually requires root or setuid helper, relying on /etc/pam.d/ logic.
-    // For "vdm", we assume a service name. "login" or a custom "vdm".
-    // We'll use "login" for broad compatibility if "vdm" is not present, but better "vdm" or "system-auth".
-    // pam-auth defaults to "system-auth"? No, constructor needs service name.
-    
-    // Using "login" or "system-auth".
-    let service = "login";
-    
-    // Create a PAM client with password conversation
-    let mut client = match Client::with_password(service) {
+    let mut client = match Client::with_password(PAM_SERVICE) {
         Ok(c) => c,
-        Err(e) => return AuthResult { success: false, message: format!("PAM init failed: {:?}", e) },
+        Err(e) => {
+            return AuthResult {
+                success: false,
+                message: format!("PAM init failed: {:?}", e),
+            }
+        }
     };
 
-    // Set credentials
     client.conversation_mut().set_credentials(username, password);
 
-    // Authenticate
     match client.authenticate() {
-        Ok(_) => AuthResult { success: true, message: "Authenticated".to_string() },
-        Err(e) => AuthResult { success: false, message: format!("Auth failed: {:?}", e) },
+        Ok(_) => AuthResult {
+            success: true,
+            message: "Authenticated".to_string(),
+        },
+        Err(e) => AuthResult {
+            success: false,
+            message: format!("Auth failed: {:?}", e),
+        },
     }
+}
+
+/// Map a nix errno to an io::Error for use inside `pre_exec`.
+fn nix_to_io(e: nix::Error) -> std::io::Error {
+    std::io::Error::from_raw_os_error(e as i32)
+}
+
+/// Strip XDG desktop-entry field codes (e.g. `%U`, `%k`, `%i`) from an Exec
+/// line, collapsing `%%` to `%`. Session `Exec=` lines usually have none, but
+/// stripping them avoids passing bogus arguments to the compositor.
+fn strip_field_codes(cmd: &str) -> Vec<String> {
+    cmd.split_whitespace()
+        .filter_map(|tok| {
+            if tok.len() == 2 && tok.starts_with('%') && tok != "%%" {
+                None
+            } else {
+                Some(tok.replace("%%", "%"))
+            }
+        })
+        .collect()
 }
 
 #[tauri::command]
 pub fn launch_session(username: String, cmd: String, session_type: String) -> Result<(), String> {
-    // Resolve User Info
     let user = User::from_name(&username)
         .map_err(|e| format!("Lookup failed: {}", e))?
         .ok_or("User not found")?;
-    
-    // We will spawn the session. 
-    // Important: This process must be running as root to setuid.
-    // If we are not root, this will fail.
-    
+
+    // Launching a session requires root to drop to the target user.
     if !Uid::current().is_root() {
-        return Err("VDM backend must run as root to launch sessions.".to_string());
+        return Err("vasak-session-manager backend must run as root to launch sessions.".to_string());
     }
 
-    // Set environment variables
-    // Should be done in the child process
-    
-    // Command splitting is naive here. Real DMs handle arguments carefully.,
-    // session_cmd might be "gnome-session" or "/usr/bin/startplasma-wayland"
-    
-    // We use std::process::Command and pre_exec to drop privileges.
-    
     let uid = user.uid;
     let gid = user.gid;
-    let home = user.dir;
-    let shell = user.shell;
-    
-    // Fork and exec logic handled by CommandExt::uid/gid?
-    // Rust's CommandExt::uid() sets the user ID.
-    
-    // We also need to Initialize PAM session? 
-    // pam-auth crate does authenticate, but 'open_session' is also needed for setting up limits, env, etc.
-    // `pam-auth` crate provided here is simple. Simple implementation might skip full PAM session handling 
-    // (creating directories, XDG_RUNTIME checking via PAM) which is risky but fits "MVP".
-    // However, we at least ensure we drop privs.
-    
-    let parts: Vec<&str> = cmd.split_whitespace().collect();
-    if parts.is_empty() {
-        return Err("Empty command".to_string());
+    let home = user.dir.clone();
+    let shell = user.shell.clone();
+    let runtime_dir = format!("/run/user/{}", uid.as_raw());
+
+    let parts = strip_field_codes(&cmd);
+    let program = parts.first().ok_or("Empty command")?.clone();
+    let args: Vec<String> = parts.into_iter().skip(1).collect();
+
+    let mut command = Command::new(&program);
+    command
+        .args(&args)
+        .env("USER", &username)
+        .env("LOGNAME", &username)
+        .env("HOME", &home)
+        .env("SHELL", &shell)
+        .env("XDG_RUNTIME_DIR", &runtime_dir)
+        .env("XDG_SESSION_TYPE", &session_type);
+
+    // Drop privileges in the child in the correct order: initialise the user's
+    // supplementary groups and set the gid *while still root*, then drop the uid
+    // last. Rust's Command::uid/gid do NOT set supplementary groups, so a user
+    // launched that way would lose audio/video/input/wheel membership.
+    let user_c = CString::new(username.clone()).map_err(|_| "invalid username".to_string())?;
+    unsafe {
+        command.pre_exec(move || {
+            initgroups(&user_c, gid).map_err(nix_to_io)?;
+            setgid(gid).map_err(nix_to_io)?;
+            setuid(uid).map_err(nix_to_io)?;
+            Ok(())
+        });
     }
-    let program = parts[0];
-    let args = &parts[1..];
-    
-    let mut child = Command::new(program);
-    child.args(args);
-    
-    // Set Env
-    child.env("USER", &username);
-    child.env("LOGNAME", &username);
-    child.env("HOME", &home);
-    child.env("SHELL", &shell);
-    // XDG_RUNTIME_DIR is usually crucial for Wayland. 
-    // /run/user/$UID
-    let runtime_dir = format!("/run/user/{}", uid);
-    child.env("XDG_RUNTIME_DIR", &runtime_dir);
-    // PATH? Keep system path or user specific? Usually allow shell to set or keep inherited + additions.
-    
-    child.uid(uid.as_raw());
-    child.gid(gid.as_raw());
-    
-    // Detach? We might want to wait or just spawn.
-    // If we block verify, the UI freezes.
-    // We should spawn and let it run.
-    
-    match child.spawn() {
-        Ok(_) => Ok(()),
-        Err(e) => Err(format!("Failed to launch: {}", e))
-    }
+
+    // NOTE: this spawns the session as a child of the greeter and does NOT open
+    // a PAM session (pam_open_session/setcred) nor hand off the TTY/DRM master
+    // from cage to the new compositor. A robust greeter needs a persistent root
+    // session daemon (greetd-style) to own the PAM transaction and the seat.
+    // Tracked as a pending architectural decision.
+    command
+        .spawn()
+        .map(|_| ())
+        .map_err(|e| format!("Failed to launch: {}", e))
 }
