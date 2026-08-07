@@ -49,12 +49,12 @@ const login = async () => {
                 placeholder="Enter password..." />
         </div>
         
-        <div v-if="error" class="text-red-500 text-sm bg-red-50 p-2 rounded-corner border border-red-200">
+        <div v-if="error" class="text-status-error text-sm bg-status-error/10 p-2 rounded-corner border border-status-error/30">
             {{ error }}
         </div>
-        
-        <button @click="login" :disabled="loading || !user" 
-                class="bg-blue-600 text-white font-semibold py-2 px-4 rounded-corner hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-sm">
+
+        <button @click="login" :disabled="loading || !user"
+                class="bg-primary text-tx-on-primary font-semibold py-2 px-4 rounded-corner hover:bg-secondary disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-sm">
             {{ loading ? 'Authenticating...' : 'Login' }}
         </button>
     </div>

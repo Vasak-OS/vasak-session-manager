@@ -6,6 +6,8 @@ mod users;
 mod sessions;
 #[path = "./commands/auth.rs"]
 mod auth;
+#[path = "./commands/power.rs"]
+mod power;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -19,7 +21,10 @@ pub fn run() {
             users::get_users,
             sessions::get_sessions,
             auth::authenticate,
-            auth::launch_session
+            auth::launch_session,
+            power::poweroff,
+            power::reboot,
+            power::suspend
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

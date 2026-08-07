@@ -33,7 +33,7 @@ onMounted(async () => {
                     const s = sessions.find(s => s.id === (e.target as HTMLSelectElement).value);
                     if(s) $emit('update:modelValue', s);
                 }"
-                class="p-2 border border-ui-border rounded-corner w-full bg-ui-bg/80 text-text-main focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent">
+                class="p-2 border border-ui-border rounded-corner w-full bg-ui-bg/80 text-tx-main focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent">
             <option v-for="s in sessions" :key="s.id" :value="s.id">
                 {{ s.name }} ({{ s.session_type }})
             </option>
