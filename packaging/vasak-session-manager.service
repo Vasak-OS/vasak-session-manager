@@ -1,0 +1,12 @@
+[Unit]
+Description=VasakOS Session Manager (display manager / greeter)
+After=systemd-user-sessions.service plymouth-quit-wait.service
+Conflicts=getty@tty7.service plymouth-quit.service
+
+[Service]
+ExecStart=/usr/bin/vasak-session-manager-launch
+Restart=always
+
+[Install]
+Alias=display-manager.service
+WantedBy=graphical.target

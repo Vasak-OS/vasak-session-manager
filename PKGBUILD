@@ -1,36 +1,31 @@
-# Maintainer: Vasak Group <maintainer@vasakos.org>
-pkgname=vdm
+# Maintainer: Joaquin (Pato) Decima <jdecima@vasak.net.ar>
+pkgname=vasak-session-manager
 pkgver=0.1.0
 pkgrel=1
-pkgdesc="VasakOS Display Manager (Rust + Vue + Tauri)"
+pkgdesc="VasakOS session manager: display manager / greeter (Rust + Vue + Tauri)"
 arch=('x86_64')
-url="https://github.com/vasakos/vdm"
+url="https://github.com/Vasak-OS/vasak-session-manager"
 license=('MIT')
-depends=('webkit2gtk' 'gtk3' 'cage' 'pam' 'nix')
-makedepends=('cargo' 'bun' 'tauri')
-source=("." ) # Helper to imply local source for this example. Usually git url or tarball.
+# NOTE: the Rust `nix` crate is a cargo dependency, NOT a pacman package
+# (pacman's `nix` is the Nix package manager) — it must not be in depends.
+depends=('webkit2gtk-4.1' 'gtk3' 'cage' 'pam')
+makedepends=('git' 'cargo' 'bun' 'rust')
+source=("git+${url}.git")
 sha256sums=('SKIP')
 
 build() {
-    cd "$srcdir"
-    # Identify directory if source is copied (makepkg copies everything or we use git)
-    # Assuming we are running this where the source is.
-    
+    cd "$srcdir/$pkgname"
     bun install
     bun run tauri build
 }
 
 package() {
-    cd "$srcdir"
-    
-    # Binary
-    install -Dm755 "src-tauri/target/release/vapp" "$pkgdir/usr/bin/vdm"
-    
-    # Launcher
-    install -Dm755 "packaging/vdm-launch" "$pkgdir/usr/bin/vdm-launch"
-    
-    # Service
-    install -Dm644 "packaging/vdm.service" "$pkgdir/usr/lib/systemd/system/vdm.service"
-    
-    # Configs (Optional, if any)
+    cd "$srcdir/$pkgname"
+
+    install -Dm755 "src-tauri/target/release/$pkgname" \
+        "$pkgdir/usr/bin/$pkgname"
+    install -Dm755 "packaging/$pkgname-launch" \
+        "$pkgdir/usr/bin/$pkgname-launch"
+    install -Dm644 "packaging/$pkgname.service" \
+        "$pkgdir/usr/lib/systemd/system/$pkgname.service"
 }

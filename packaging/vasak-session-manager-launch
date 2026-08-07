@@ -1,0 +1,10 @@
+#!/bin/bash
+# VasakOS Session Manager launcher.
+# Runs the greeter inside Cage (a minimal kiosk Wayland compositor).
+
+# Ensure a reasonable environment for the greeter.
+export XDG_SESSION_TYPE=wayland
+export XDG_CURRENT_DESKTOP=VasakOS
+
+# -s: allow running without a controlling tty (needed under systemd).
+exec cage -s -- /usr/bin/vasak-session-manager

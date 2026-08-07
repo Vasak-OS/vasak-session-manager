@@ -2,5 +2,5 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 fn main() {
-    vdm_lib::run()
+    vasak_session_manager_lib::run()
 }

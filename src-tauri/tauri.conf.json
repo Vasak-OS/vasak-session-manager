@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "vdm",
+  "productName": "vasak-session-manager",
   "version": "0.1.0",
-  "identifier": "ar.net.vasak.vdm",
+  "identifier": "ar.net.vasak.os.session-manager",
   "build": {
     "beforeDevCommand": "bun run dev",
     "devUrl": "http://localhost:1420",
@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "vdm",
+        "title": "vasak-session-manager",
         "width": 800,
         "height": 600,
         "decorations": false,
