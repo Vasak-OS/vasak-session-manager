@@ -19,16 +19,11 @@ tauri-build = { version = "2", features = [] }
 
 [dependencies]
 tauri = { version = "2", features = [] }
-tauri-plugin-shell = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-tauri-plugin-vicons = "2"
-tauri-plugin-config-manager = "2"
-gtk = "0.18"
 base64 = "0.22"
-users = "0.11.0"
-walkdir = "2.5.0"
-anyhow = "1.0.101"
+libc = "0.2.189"
+tauri-plugin-i18n-vsk = "2.1.1"
 
 [profile.dev]
 incremental = true # Compile your binary in smaller steps.
@@ -39,3 +34,6 @@ lto = true # Enables link-time-optimizations.
 opt-level = "s" # Prioritizes small binary size. Use `3` if you prefer speed.
 panic = "abort" # Higher performance by disabling panic handlers.
 strip = true # Ensures debug symbols are removed.
+
+[dev-dependencies]
+tempfile = "3.27.0"

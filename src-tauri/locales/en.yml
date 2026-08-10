@@ -1,0 +1,26 @@
+login:
+  title: VasakOS
+  selectUser: Choose your account
+  otherUser: Other account…
+  username: Username
+  usernamePlaceholder: User name
+  password: Password
+  passwordPlaceholder: Type your password
+  session: Session
+  signIn: Sign in
+  authenticating: Checking…
+  noUsers: No account was found on this computer
+  noUsersHint: Type a user name to sign in.
+  noSessions: No desktop is installed
+  noSessionsHint: Install a desktop environment to be able to sign in.
+  capsLock: Caps Lock is on
+  keyboard: "Keyboard: {0}"
+  keyboardSwitch: Press both Shift keys to switch
+  usernameRequired: Type a user name
+  passwordRequired: Type your password
+  sessionRequired: Choose a session
+
+power:
+  suspend: Suspend
+  reboot: Restart
+  poweroff: Shut down

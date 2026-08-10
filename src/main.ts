@@ -1,5 +1,5 @@
 import { createApp } from "vue";
-import { createPinia } from "pinia";
+import I18n from "@vasakgroup/tauri-plugin-i18n";
 import App from "./App.vue";
 import "./style.css";
 
@@ -8,8 +8,7 @@ import "./style.css";
 document.documentElement.classList.add("dark");
 
 const app = createApp(App);
-const pinia = createPinia();
 
-app.use(pinia);
+I18n.getInstance().load();
 
 app.mount("#app");

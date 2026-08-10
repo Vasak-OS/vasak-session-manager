@@ -26,4 +26,10 @@ package() {
         "$pkgdir/usr/bin/$pkgname"
     install -Dm755 "packaging/$pkgname-launch" \
         "$pkgdir/usr/bin/$pkgname-launch"
+
+    # The i18n plugin resolves locales at runtime from a real directory; without
+    # this the installed greeter renders raw keys instead of text.
+    install -dm755 "$pkgdir/usr/share/$pkgname/locales"
+    install -Dm644 src-tauri/locales/*.yml \
+        "$pkgdir/usr/share/$pkgname/locales/"
 }

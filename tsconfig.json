@@ -23,7 +23,13 @@
     "typeRoots": [
       "./src/types",
       "./node_modules/@types"
-    ]
+    ],
+
+    /* Mirrors the `@` alias in vite.config.ts, which vue-tsc does not read. */
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["./src/*"]
+    }
   },
   "include": ["src/**/*.ts", "src/**/*.d.ts", "src/**/*.tsx", "src/**/*.vue"],
   "references": [{ "path": "./tsconfig.node.json" }]

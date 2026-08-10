@@ -1,0 +1,26 @@
+login:
+  title: VasakOS
+  selectUser: Elegí tu cuenta
+  otherUser: Otra cuenta…
+  username: Usuario
+  usernamePlaceholder: Nombre de usuario
+  password: Contraseña
+  passwordPlaceholder: Escribí tu contraseña
+  session: Sesión
+  signIn: Iniciar sesión
+  authenticating: Verificando…
+  noUsers: No se encontró ninguna cuenta en este equipo
+  noUsersHint: Escribí el nombre de usuario para iniciar sesión.
+  noSessions: No hay ningún escritorio instalado
+  noSessionsHint: Instalá un entorno de escritorio para poder iniciar sesión.
+  capsLock: Bloq Mayús está activado
+  keyboard: "Teclado: {0}"
+  keyboardSwitch: Presioná las dos teclas Mayús para cambiar
+  usernameRequired: Escribí un nombre de usuario
+  passwordRequired: Escribí tu contraseña
+  sessionRequired: Elegí una sesión
+
+power:
+  suspend: Suspender
+  reboot: Reiniciar
+  poweroff: Apagar

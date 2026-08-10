@@ -9,6 +9,15 @@
 use serde::{Deserialize, Serialize};
 use std::io::{Read, Write};
 use std::os::unix::net::UnixStream;
+use std::path::Path;
+use std::time::Duration;
+
+/// Upper bound on any single exchange with greetd.
+///
+/// PAM deliberately delays a rejected password, so this has to be generous —
+/// but without it a greetd that never answers leaves the login screen stuck on
+/// "Authenticating…" with no way out short of a hard reboot.
+const IO_TIMEOUT: Duration = Duration::from_secs(60);
 
 #[derive(Serialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
@@ -63,19 +72,74 @@ fn strip_field_codes(cmd: &str) -> Vec<String> {
         .collect()
 }
 
-/// Authenticate `username` and start `cmd` via greetd. On success this process
-/// exits so greetd can start the session; on failure it returns the error.
-#[tauri::command]
-pub fn login(
+/// Wraps an X11 session so it actually starts.
+///
+/// greetd hands the command straight to `exec`, with no X server behind it, so
+/// an `Exec=` line taken from `/usr/share/xsessions` would die immediately —
+/// X11 sessions were listed on the login screen but could never be used.
+/// `startx` brings up the server and then runs the session as its client;
+/// `env` is in between because `startx` only accepts an absolute path there.
+fn wrap_for_session_type(session_type: &str, cmd: Vec<String>) -> Vec<String> {
+    if session_type != "x11" {
+        return cmd;
+    }
+
+    let mut wrapped = vec!["startx".to_string(), "/usr/bin/env".to_string()];
+    wrapped.extend(cmd);
+    wrapped
+}
+
+/// Builds the environment the desktop needs to identify itself.
+///
+/// Without these, applications cannot tell which desktop they are running
+/// under: portals pick the wrong backend, and menus and theming fall back to
+/// generic defaults.
+fn session_environment(
+    session_id: &str,
+    session_type: &str,
+    desktop_names: &[String],
+) -> Vec<String> {
+    // `foo.desktop` → `foo`, which is what DESKTOP_SESSION has always meant.
+    let session_name = Path::new(session_id)
+        .file_stem()
+        .map(|stem| stem.to_string_lossy().into_owned())
+        .unwrap_or_else(|| session_id.to_string());
+
+    let current_desktop = if desktop_names.is_empty() {
+        session_name.clone()
+    } else {
+        desktop_names.join(":")
+    };
+
+    vec![
+        format!("XDG_SESSION_TYPE={session_type}"),
+        format!("XDG_SESSION_DESKTOP={session_name}"),
+        format!("DESKTOP_SESSION={session_name}"),
+        format!("XDG_CURRENT_DESKTOP={current_desktop}"),
+    ]
+}
+
+/// Drives one full greetd exchange: authenticate, then start the session.
+///
+/// On success the process exits so greetd can take over, so this only ever
+/// returns on failure.
+fn run_login(
     username: String,
     password: String,
     cmd: String,
+    session_id: String,
     session_type: String,
+    desktop_names: Vec<String>,
 ) -> Result<(), String> {
     let sock = std::env::var("GREETD_SOCK")
         .map_err(|_| "GREETD_SOCK not set (not running under greetd)".to_string())?;
     let mut stream =
         UnixStream::connect(&sock).map_err(|e| format!("cannot connect to greetd: {e}"))?;
+
+    stream
+        .set_read_timeout(Some(IO_TIMEOUT))
+        .and_then(|_| stream.set_write_timeout(Some(IO_TIMEOUT)))
+        .map_err(|e| format!("cannot set greetd socket timeouts: {e}"))?;
 
     let mut resp = roundtrip(
         &mut stream,
@@ -121,9 +185,13 @@ pub fn login(
         let _ = roundtrip(&mut stream, &Request::CancelSession);
         return Err("Empty session command".to_string());
     }
-    let env = vec![format!("XDG_SESSION_TYPE={session_type}")];
 
-    match roundtrip(&mut stream, &Request::StartSession { cmd: cmd_vec, env })? {
+    let request = Request::StartSession {
+        cmd: wrap_for_session_type(&session_type, cmd_vec),
+        env: session_environment(&session_id, &session_type, &desktop_names),
+    };
+
+    match roundtrip(&mut stream, &request)? {
         // greetd starts the session once this greeter exits.
         Response::Success => std::process::exit(0),
         Response::Error {
@@ -131,5 +199,78 @@ pub fn login(
             description,
         } => Err(format!("{error_type}: {description}")),
         Response::AuthMessage { .. } => Err("unexpected auth message after start".to_string()),
+    }
+}
+
+/// Authenticate `username` and start the chosen session via greetd.
+///
+/// Runs off the main thread: PAM makes a rejected password wait several seconds
+/// on purpose, and doing that inline froze the whole login screen — the typed
+/// password stayed on screen and the button never showed it was working.
+#[tauri::command]
+pub async fn login(
+    username: String,
+    password: String,
+    cmd: String,
+    session_id: String,
+    session_type: String,
+    desktop_names: Vec<String>,
+) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        run_login(username, password, cmd, session_id, session_type, desktop_names)
+    })
+    .await
+    .map_err(|e| format!("login task failed: {e}"))?
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn field_codes_are_removed_from_the_command() {
+        assert_eq!(strip_field_codes("gnome-session %U"), vec!["gnome-session"]);
+        assert_eq!(
+            strip_field_codes("run --flag %k file"),
+            vec!["run", "--flag", "file"]
+        );
+        // `%%` is a literal percent sign, not a field code.
+        assert_eq!(strip_field_codes("run 100%%"), vec!["run", "100%"]);
+    }
+
+    #[test]
+    fn wayland_sessions_run_unwrapped() {
+        let cmd = vec!["vasak-session".to_string()];
+        assert_eq!(wrap_for_session_type("wayland", cmd.clone()), cmd);
+    }
+
+    #[test]
+    fn x11_sessions_are_started_under_an_x_server() {
+        assert_eq!(
+            wrap_for_session_type("x11", vec!["i3".to_string(), "--flag".to_string()]),
+            vec!["startx", "/usr/bin/env", "i3", "--flag"]
+        );
+    }
+
+    #[test]
+    fn the_session_identifies_itself_to_applications() {
+        let env = session_environment(
+            "vasak.desktop",
+            "wayland",
+            &["VasakOS".to_string(), "wlroots".to_string()],
+        );
+
+        assert!(env.contains(&"XDG_SESSION_TYPE=wayland".to_string()));
+        assert!(env.contains(&"XDG_SESSION_DESKTOP=vasak".to_string()));
+        assert!(env.contains(&"DESKTOP_SESSION=vasak".to_string()));
+        assert!(env.contains(&"XDG_CURRENT_DESKTOP=VasakOS:wlroots".to_string()));
+    }
+
+    /// Plenty of session files omit DesktopNames; the session still has to be
+    /// identifiable, so the file name stands in.
+    #[test]
+    fn a_session_without_desktop_names_falls_back_to_its_file_name() {
+        let env = session_environment("sway.desktop", "wayland", &[]);
+        assert!(env.contains(&"XDG_CURRENT_DESKTOP=sway".to_string()));
     }
 }

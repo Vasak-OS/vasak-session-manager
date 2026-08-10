@@ -7,5 +7,49 @@
 export XDG_SESSION_TYPE=wayland
 export XDG_CURRENT_DESKTOP=VasakOS
 
+# ── Keyboard layout ──────────────────────────────────────────────────────────
+# Cage is a wlroots compositor and takes its keymap from XKB_DEFAULT_*. Without
+# these it defaults to US QWERTY no matter how the machine is configured, so
+# anyone with a non-US keyboard types a different password than the one they
+# see and simply cannot log in. The layout has to be resolved here, in the
+# compositor's environment: the greeter itself cannot change a keymap.
+#
+# /etc/X11/xorg.conf.d/00-keyboard.conf is what localectl writes and is
+# authoritative for XKB. /etc/vconsole.conf is the console keymap and is only a
+# fallback, since its names do not always match XKB layout names.
+
+read_xkb_option() {
+    local key="$1" file="/etc/X11/xorg.conf.d/00-keyboard.conf"
+    [ -r "$file" ] || return 1
+    sed -n -E "s/^[[:space:]]*Option[[:space:]]+\"${key}\"[[:space:]]+\"([^\"]*)\".*/\1/Ip" \
+        "$file" | head -n 1
+}
+
+XKB_DEFAULT_LAYOUT="$(read_xkb_option XkbLayout)"
+XKB_DEFAULT_VARIANT="$(read_xkb_option XkbVariant)"
+XKB_DEFAULT_MODEL="$(read_xkb_option XkbModel)"
+XKB_DEFAULT_OPTIONS="$(read_xkb_option XkbOptions)"
+
+if [ -z "$XKB_DEFAULT_LAYOUT" ] && [ -r /etc/vconsole.conf ]; then
+    # KEYMAP names mostly match XKB layouts for the common cases; strip the
+    # variant suffixes the console uses ("es-dvorak", "fr.map.gz").
+    keymap="$(sed -n -E 's/^[[:space:]]*KEYMAP=["]?([^"#[:space:]]+).*/\1/p' \
+        /etc/vconsole.conf | head -n 1)"
+    XKB_DEFAULT_LAYOUT="${keymap%%-*}"
+fi
+
+# Offer a US layout alongside a non-US one, switchable with both Shift keys.
+# A password typed on an unexpected layout is invisible in a password field, so
+# leaving an escape hatch is worth more than a strictly faithful keymap.
+if [ -n "$XKB_DEFAULT_LAYOUT" ] && [ "$XKB_DEFAULT_LAYOUT" != "us" ]; then
+    XKB_DEFAULT_LAYOUT="${XKB_DEFAULT_LAYOUT},us"
+    XKB_DEFAULT_OPTIONS="${XKB_DEFAULT_OPTIONS:+${XKB_DEFAULT_OPTIONS},}grp:shifts_toggle"
+fi
+
+[ -n "$XKB_DEFAULT_LAYOUT" ] && export XKB_DEFAULT_LAYOUT
+[ -n "$XKB_DEFAULT_VARIANT" ] && export XKB_DEFAULT_VARIANT
+[ -n "$XKB_DEFAULT_MODEL" ] && export XKB_DEFAULT_MODEL
+[ -n "$XKB_DEFAULT_OPTIONS" ] && export XKB_DEFAULT_OPTIONS
+
 # -s: allow running without a controlling tty.
 exec cage -s -- /usr/bin/vasak-session-manager
