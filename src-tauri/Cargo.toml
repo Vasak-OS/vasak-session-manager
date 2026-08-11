@@ -1,6 +1,6 @@
 [package]
 name = "vasak-session-manager"
-version = "0.1.0"
+version = "0.2.0"
 description = "VasakOS session manager (display manager / greeter)"
 authors = ["Vasak Group", "Joaquin (Pato) Decima"]
 edition = "2021"
