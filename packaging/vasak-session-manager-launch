@@ -51,5 +51,29 @@ fi
 [ -n "$XKB_DEFAULT_MODEL" ] && export XKB_DEFAULT_MODEL
 [ -n "$XKB_DEFAULT_OPTIONS" ] && export XKB_DEFAULT_OPTIONS
 
-# -s: allow running without a controlling tty.
+# ── Somewhere to write ───────────────────────────────────────────────────────
+# greetd starts the greeter with a minimal environment, and WebKit refuses to
+# start without a writable data directory — which is a failed window, which
+# Tauri turns into a panic before anything is drawn. The symptom to look for is
+# paths beginning with a double slash ("//.cache"), which is what an empty HOME
+# expands to.
+if [ -z "$HOME" ] || [ ! -w "$HOME" ]; then
+    HOME="$(getent passwd "$(id -un)" | cut -d: -f6)"
+    [ -n "$HOME" ] && [ -w "$HOME" ] || HOME=/tmp/vasak-greeter-$(id -u)
+    export HOME
+fi
+mkdir -p "$HOME"
+
+export XDG_CACHE_HOME="${XDG_CACHE_HOME:-$HOME/.cache}"
+export XDG_DATA_HOME="${XDG_DATA_HOME:-$HOME/.local/share}"
+export XDG_CONFIG_HOME="${XDG_CONFIG_HOME:-$HOME/.config}"
+mkdir -p "$XDG_CACHE_HOME" "$XDG_DATA_HOME" "$XDG_CONFIG_HOME"
+
+# systemd needs this to exist for a session that is not a logind one.
+export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+[ -d "$XDG_RUNTIME_DIR" ] || { XDG_RUNTIME_DIR="$HOME/run"; mkdir -p "$XDG_RUNTIME_DIR"; chmod 700 "$XDG_RUNTIME_DIR"; export XDG_RUNTIME_DIR; }
+
+# The greeter writes what it says here; greetd captures it into its journal, so
+# a failure to start is readable with `journalctl -u greetd` instead of only
+# being visible as text flashing past on the console.
 exec cage -s -- /usr/bin/vasak-session-manager
