@@ -1,0 +1,14 @@
+# VasakOS greeter, for an installed system.
+#
+# Deliberately without an `initial_session` block: that is autologin, and it
+# belongs only to the live image, where the account it names actually exists.
+# Copied onto a real installation it names a user who is not there, and the
+# login either fails or loops.
+
+[terminal]
+# 7 rather than 1, so the greeter does not fight getty@tty1 for the console.
+vt = 7
+
+[default_session]
+command = "/usr/bin/vasak-session-manager-launch"
+user = "greeter"

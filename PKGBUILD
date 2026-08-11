@@ -12,6 +12,7 @@ depends=('webkit2gtk-4.1' 'gtk3' 'cage' 'greetd')
 makedepends=('git' 'cargo' 'bun' 'rust')
 source=("git+${url}.git")
 sha256sums=('SKIP')
+install="vasak-session-manager.install"
 
 build() {
     cd "$srcdir/$pkgname"
@@ -26,6 +27,12 @@ package() {
         "$pkgdir/usr/bin/$pkgname"
     install -Dm755 "packaging/$pkgname-launch" \
         "$pkgdir/usr/bin/$pkgname-launch"
+
+    # Reference configuration, not /etc/greetd/config.toml: that path belongs to
+    # the greetd package, and two packages owning one file is a conflict pacman
+    # refuses to install. The install scriptlet puts it in place.
+    install -Dm644 "packaging/greetd.toml" \
+        "$pkgdir/usr/share/$pkgname/greetd.toml"
 
     # The i18n plugin resolves locales at runtime from a real directory; without
     # this the installed greeter renders raw keys instead of text.
