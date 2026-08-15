@@ -1,6 +1,6 @@
 # Maintainer: Joaquin (Pato) Decima <jdecima@vasak.net.ar>
 pkgname=vasak-session-manager
-pkgver=0.1.0
+pkgver=0.2.1
 pkgrel=1
 pkgdesc="VasakOS session manager: display manager / greeter (Rust + Vue + Tauri)"
 arch=('x86_64')
@@ -8,11 +8,18 @@ url="https://github.com/Vasak-OS/vasak-session-manager"
 license=('MIT')
 # Runs as a greetd greeter (greetd owns PAM/seat/session), so no pam/systemd
 # service is shipped here. cage hosts the greeter; greetd invokes the launcher.
-depends=('webkit2gtk-4.1' 'gtk3' 'cage' 'greetd')
+# vasakos-wallpapers holds the image the login screen is drawn on.
+depends=('webkit2gtk-4.1' 'gtk3' 'cage' 'greetd' 'vasakos-wallpapers')
 makedepends=('git' 'cargo' 'bun' 'rust')
 source=("git+${url}.git")
 sha256sums=('SKIP')
 install="vasak-session-manager.install"
+
+# makepkg's global LTO injects -flto into CFLAGS/LDFLAGS. Crates that build C or
+# assembly then emit LTO bitcode that rustc's linker cannot resolve. Rust does
+# its own LTO via the Cargo release profile, so makepkg's is redundant here as
+# well as harmful.
+options=('!lto')
 
 build() {
     cd "$srcdir/$pkgname"
@@ -39,4 +46,10 @@ package() {
     install -dm755 "$pkgdir/usr/share/$pkgname/locales"
     install -Dm644 src-tauri/locales/*.yml \
         "$pkgdir/usr/share/$pkgname/locales/"
+
+    # Creates the state directory the greeter remembers the last account in.
+    # It runs as `greeter`, whose home is `/`, so it has nowhere else to write
+    # that survives a reboot.
+    install -Dm644 "packaging/$pkgname.tmpfiles.conf" \
+        "$pkgdir/usr/lib/tmpfiles.d/$pkgname.conf"
 }

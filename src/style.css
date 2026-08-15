@@ -4,6 +4,11 @@
   /* general */
   --corner-radius: 10px;
 
+  /* The greeter runs before any GTK theme is set up, so the engine's own
+     widgets — scrollbars, the caret, autofill, focus rings — default to the
+     light palette and come out white on a dark login screen. */
+  color-scheme: dark;
+
   /* Colores de Marca */
   --primary: #dd7878;
   --secondary: #8839ef;
@@ -97,6 +102,15 @@
 
 ::view-transition-new(root) {
   animation: circle-in 500ms;
+}
+
+/* The greeter surface is exactly the size of the screens it covers: a
+   scrollbar here would mean the login screen can be scrolled off itself. */
+html,
+body,
+#app {
+  height: 100%;
+  overflow: hidden;
 }
 
 body * {

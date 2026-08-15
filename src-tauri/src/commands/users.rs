@@ -96,7 +96,10 @@ fn avatar_path(user: &str, home: &str) -> Option<PathBuf> {
     })
 }
 
-fn avatar_data_url(path: &Path) -> Option<String> {
+/// Reads an image into a `data:` URL, or `None` when it is not an image the
+/// webview can draw. Shared with the login background, which cannot reach the
+/// filesystem from the page either.
+pub fn image_data_url(path: &Path) -> Option<String> {
     let bytes = std::fs::read(path).ok()?;
 
     // Sniff the container rather than trusting the extension: AccountsService
@@ -150,7 +153,7 @@ pub fn get_users() -> Vec<SystemUser> {
 
             users.push(SystemUser {
                 real_name: real_name_from_gecos(&c_str_to_string(entry.pw_gecos)),
-                avatar: avatar_path(&name, &home).as_deref().and_then(avatar_data_url),
+                avatar: avatar_path(&name, &home).as_deref().and_then(image_data_url),
                 name,
                 uid,
                 gid: entry.pw_gid,

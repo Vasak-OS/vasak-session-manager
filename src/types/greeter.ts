@@ -27,5 +27,24 @@ export interface KeyboardLayout {
 
 export interface LastLogin {
   username: string | null;
-  session_id: string | null;
+  /** Session chosen by each account, keyed by user name. */
+  sessions: Record<string, string>;
+}
+
+/** One physical monitor, in CSS pixels relative to the greeter surface. */
+export interface Screen {
+  index: number;
+  name: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  /** Where the login box goes until the pointer says otherwise. */
+  primary: boolean;
+}
+
+export interface ScreenLayout {
+  width: number;
+  height: number;
+  screens: Screen[];
 }

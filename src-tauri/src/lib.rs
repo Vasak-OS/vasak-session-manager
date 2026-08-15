@@ -10,6 +10,10 @@ mod power;
 mod keyboard;
 #[path = "./commands/state.rs"]
 mod state;
+#[path = "./commands/screens.rs"]
+mod screens;
+#[path = "./commands/background.rs"]
+mod background;
 
 /// Where the translations live.
 ///
@@ -60,7 +64,9 @@ pub fn run() {
             power::suspend,
             keyboard::get_keyboard_layout,
             state::get_last_login,
-            state::set_last_login
+            state::set_last_login,
+            screens::get_screens,
+            background::get_background
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

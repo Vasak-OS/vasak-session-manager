@@ -76,4 +76,12 @@ export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
 # The greeter writes what it says here; greetd captures it into its journal, so
 # a failure to start is readable with `journalctl -u greetd` instead of only
 # being visible as text flashing past on the console.
-exec cage -s -- /usr/bin/vasak-session-manager
+#
+# `-m extend` covers every connected monitor. Cage's default is to use only the
+# last one connected, which on a two-screen desk leaves the login screen on
+# whichever monitor the machine happened to enumerate last and the other one
+# black. Extending gives the greeter one surface across the whole layout, and
+# the greeter draws a wallpaper per monitor inside it and keeps the login box on
+# the monitor holding the pointer — Cage shows a single window at a time, so one
+# window per monitor is not something it can do.
+exec cage -s -m extend -- /usr/bin/vasak-session-manager
