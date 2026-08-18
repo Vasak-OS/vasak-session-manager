@@ -1,0 +1,15 @@
+#%PAM-1.0
+#
+# El servicio PAM de la pantalla de bloqueo.
+#
+# Tiene el suyo propio en vez de reusar `login` porque las dos cosas se
+# preguntan distinto: `login` decide si alguien puede *entrar* al sistema, y por
+# eso incluye pam_nologin y pam_shells, que rechazarían a una persona cuya
+# sesión ya está abierta y que sólo quiere volver a ella. Dejar a alguien
+# encerrado fuera de su propia sesión por un /etc/nologin creado después de que
+# inició sesión sería absurdo.
+#
+# Sólo se autentica: no abre sesión ni toca credenciales, porque la sesión ya
+# existe y es la que se está desbloqueando.
+auth       include    system-auth
+account    include    system-auth

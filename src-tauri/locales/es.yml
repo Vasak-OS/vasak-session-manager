@@ -24,3 +24,12 @@ power:
   suspend: Suspender
   reboot: Reiniciar
   poweroff: Apagar
+
+lock:
+  title: "Sesión bloqueada de {0}"
+  password: Contraseña
+  unlock: Desbloquear
+  checking: Comprobando…
+  wrongPassword: La contraseña no es correcta.
+  error: No se pudo comprobar la contraseña.
+  capsLock: Bloq Mayús está activado

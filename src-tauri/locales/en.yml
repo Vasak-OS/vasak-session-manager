@@ -24,3 +24,12 @@ power:
   suspend: Suspend
   reboot: Restart
   poweroff: Shut down
+
+lock:
+  title: "{0}'s session is locked"
+  password: Password
+  unlock: Unlock
+  checking: Checking…
+  wrongPassword: Wrong password.
+  error: The password could not be checked.
+  capsLock: Caps Lock is on

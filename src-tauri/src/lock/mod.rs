@@ -1,0 +1,231 @@
+//! The lock screen: the greeter's face, over an already open session.
+
+mod auth;
+mod session_lock;
+mod wallpaper;
+
+use gtk::prelude::*;
+use session_lock::SessionLock;
+use std::cell::RefCell;
+use tauri::{AppHandle, WebviewUrl, WebviewWindowBuilder};
+
+// The held lock lives on the GTK main thread, which is the only thread allowed
+// to touch it: GTK objects are not `Send`, so Tauri's managed state — which
+// requires it — is not an option. Same reasoning as the shell surfaces in
+// vasak-desktop.
+thread_local! {
+    static HELD: RefCell<Option<SessionLock>> = const { RefCell::new(None) };
+}
+
+#[tauri::command]
+fn lock_user() -> String {
+    auth::current_user()
+}
+
+/// Answers the page: does this password open this session?
+///
+/// On success the lock is released here rather than in the page — the release
+/// has to happen whether or not the webview is still in a state to ask for it.
+#[tauri::command]
+fn unlock(app: AppHandle, password: String) -> bool {
+    if !auth::verify(&auth::current_user(), &password) {
+        return false;
+    }
+
+    // Releasing has to happen on the thread that holds it, and the answer to
+    // the page does not wait for that: the session is coming back either way.
+    let handle = app.clone();
+    let _ = app.run_on_main_thread(move || {
+        HELD.with(|held| {
+            if let Some(lock) = held.borrow_mut().take() {
+                lock.release();
+            }
+        });
+
+        // Nothing to stay up for: every surface belonged to a lock that no
+        // longer exists.
+        handle.exit(0);
+    });
+
+    true
+}
+
+/// Puts one surface on every monitor.
+///
+/// Same reparenting as the panel: Tauri only knows how to build xdg-toplevels,
+/// so the webview is created inside a throwaway one and moved into the window
+/// that becomes the lock surface.
+fn cover_every_monitor(app: &AppHandle, lock: &SessionLock) -> Result<(), String> {
+    let display = gdk::Display::default().ok_or("no hay display")?;
+    let monitors = display.n_monitors();
+
+    if monitors == 0 {
+        return Err("no hay monitores".into());
+    }
+
+    for index in 0..monitors {
+        let monitor = display
+            .monitor(index)
+            .ok_or_else(|| format!("no se pudo leer el monitor {index}"))?;
+
+        let label = format!("lock-{index}");
+        let webview = WebviewWindowBuilder::new(app, &label, WebviewUrl::App("index.html#/lock".into()))
+            .title("Vasak lock")
+            .decorations(false)
+            .visible(false)
+            .build()
+            .map_err(|e| format!("no se pudo crear la vista del monitor {index}: {e}"))?;
+
+        let toplevel = webview
+            .gtk_window()
+            .map_err(|e| format!("sin ventana GTK para el monitor {index}: {e}"))?;
+
+        let surface = gtk::Window::new(gtk::WindowType::Toplevel);
+        surface.set_decorated(false);
+
+        reparent(&toplevel, &surface)?;
+        lock.attach(&surface, &monitor);
+        toplevel.hide();
+    }
+
+    Ok(())
+}
+
+fn reparent(from: &gtk::ApplicationWindow, to: &gtk::Window) -> Result<(), String> {
+    let child = from.child().ok_or("la ventana de Tauri no tiene hijo")?;
+    let container = child
+        .dynamic_cast_ref::<gtk::Container>()
+        .ok_or_else(|| format!("el hijo {} no es un contenedor", child.type_().name()))?;
+    let widget = container
+        .children()
+        .first()
+        .cloned()
+        .ok_or("el contenedor no tiene la vista web")?;
+
+    container.remove(&widget);
+    to.add(&widget);
+    Ok(())
+}
+
+/// Forks and reports back once the screen is actually covered.
+///
+/// `before-sleep` needs this. swayidle waits for the command it runs, so a lock
+/// screen that stays in the foreground until somebody types their password
+/// holds up the suspend for exactly that long — the machine does not sleep
+/// until it is unlocked. Returning immediately instead would race the other
+/// way: the machine could suspend before anything covers the screen, and wake
+/// up showing the desktop.
+///
+/// So the parent waits for the child to say "locked" through a pipe, and only
+/// then exits. Same contract as gtklock's `-d`, which the idle unit already
+/// speaks.
+fn daemonize() -> Option<std::fs::File> {
+    use std::os::unix::io::FromRawFd;
+
+    if !std::env::args().any(|arg| arg == "-d" || arg == "--daemonize") {
+        return None;
+    }
+
+    let mut fds = [0; 2];
+    if unsafe { libc::pipe(fds.as_mut_ptr()) } != 0 {
+        eprintln!("[lock] no se pudo crear el pipe para avisar; se sigue en primer plano");
+        return None;
+    }
+
+    match unsafe { libc::fork() } {
+        -1 => {
+            eprintln!("[lock] no se pudo bifurcar; se sigue en primer plano");
+            None
+        }
+        0 => {
+            // Child: keeps the write end and carries on to lock the session.
+            unsafe { libc::close(fds[0]) };
+            Some(unsafe { std::fs::File::from_raw_fd(fds[1]) })
+        }
+        _ => {
+            // Parent: exits as soon as the child reports the screen is covered,
+            // or right away if the child died without covering it — either way
+            // suspend is no longer waiting on a password.
+            unsafe { libc::close(fds[1]) };
+            let mut byte = [0u8; 1];
+            let mut reader = unsafe { std::fs::File::from_raw_fd(fds[0]) };
+            use std::io::Read;
+            let locked = reader.read_exact(&mut byte).is_ok();
+            std::process::exit(if locked { 0 } else { 1 });
+        }
+    }
+}
+
+/// Draws the screen without locking anything.
+///
+/// The only way to look at this while developing it. Taking a real lock to
+/// check a colour costs a session when anything goes wrong, and it did: a debug
+/// build ended up over a live session with no way to authenticate, and the
+/// machine had to be power-cycled.
+fn dry_run() -> bool {
+    std::env::args().any(|arg| arg == "--dry-run")
+}
+
+pub fn run() {
+    // Before anything else: the fork has to happen before GTK, WebKit or Tauri
+    // have started any thread, because only the calling thread survives a fork.
+    let ready = daemonize();
+
+    tauri::Builder::default()
+        .plugin(tauri_plugin_config_manager::init())
+        .plugin(tauri_plugin_i18n_vsk::init_with_path(
+            Some(crate::default_locale()),
+            crate::locales_dir(),
+        ))
+        .invoke_handler(tauri::generate_handler![
+            lock_user,
+            unlock,
+            wallpaper::lock_background
+        ])
+        .setup(|app| {
+            if dry_run() {
+                eprintln!("[lock] --dry-run: se dibuja en una ventana normal, sin bloquear");
+                WebviewWindowBuilder::new(
+                    app,
+                    "lock-0",
+                    WebviewUrl::App("index.html#/lock".into()),
+                )
+                .title("Vasak lock (dry-run)")
+                .inner_size(900.0, 600.0)
+                .build()?;
+                return Ok(());
+            }
+
+            // Before anything is covered: a lock that cannot check a password
+            // is a machine that cannot be recovered without the power button.
+            // Refusing to start is the only acceptable answer.
+            auth::can_authenticate()?;
+
+            // Taking the lock first is what makes this safe to fail: from here
+            // the compositor is already covering every output, so an error
+            // below leaves a blank screen and not a visible desktop.
+            let lock = SessionLock::acquire()?;
+
+            if let Err(error) = cover_every_monitor(app.handle(), &lock) {
+                // The lock is dropped here, which releases the session. A lock
+                // screen that cannot draw is worse than none: it would leave
+                // the machine unusable with no way to type a password.
+                eprintln!("[lock] no se pudo dibujar el bloqueo: {error}");
+                return Err(error.into());
+            }
+
+            HELD.with(|held| *held.borrow_mut() = Some(lock));
+
+            // Every output is covered now: whoever is waiting to suspend can
+            // stop waiting.
+            if let Some(mut pipe) = ready {
+                use std::io::Write;
+                let _ = pipe.write_all(b"1");
+                let _ = pipe.flush();
+            }
+
+            Ok(())
+        })
+        .run(tauri::generate_context!())
+        .expect("error al correr la pantalla de bloqueo");
+}
