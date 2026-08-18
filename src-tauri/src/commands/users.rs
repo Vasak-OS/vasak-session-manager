@@ -82,7 +82,7 @@ fn is_login_shell(shell: &str) -> bool {
 /// AccountsService is checked first because it is world-readable by design;
 /// `~/.face` usually is not reachable at all, since the greeter runs as an
 /// unprivileged user that cannot enter other people's home directories.
-fn avatar_path(user: &str, home: &str) -> Option<PathBuf> {
+pub(crate) fn avatar_path(user: &str, home: &str) -> Option<PathBuf> {
     let candidates = [
         PathBuf::from("/var/lib/AccountsService/icons").join(user),
         Path::new(home).join(".face"),

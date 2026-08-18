@@ -14,6 +14,7 @@ const error = ref("");
 const working = ref(false);
 const capsLock = ref(false);
 const background = ref<string | null>(null);
+const avatar = ref<string | null>(null);
 const field = ref<HTMLInputElement | null>(null);
 
 onMounted(async () => {
@@ -22,6 +23,7 @@ onMounted(async () => {
   // the rest of the system: it is the one people see without asking for it.
   try {
     user.value = await invoke<string>("lock_user");
+    avatar.value = await invoke<string | null>("lock_avatar");
     background.value = await invoke<string | null>("lock_background");
   } catch (reason) {
     // Nunca silencioso: si el puente con Rust no responde, tampoco va a
@@ -89,11 +91,22 @@ const submit = async () => {
       <GreeterClock />
 
     <form
-      class="bg-ui-bg/80 p-8 rounded-corner shadow-xl w-full max-w-md flex flex-col gap-4"
+      class="relative bg-ui-bg/80 px-8 pb-8 pt-14 rounded-corner shadow-xl w-full max-w-md flex flex-col gap-4"
       @submit.prevent="submit"
     >
-      <h1 class="text-xl font-semibold text-tx-main">
-        {{ t("lock.title").replace("{0}", user) }}
+      <!-- La foto sobresale por encima del borde: es lo que dice de quién es
+           esta sesión, sin necesidad de escribir el nombre. -->
+      <div
+        class="absolute -top-12 left-1/2 -translate-x-1/2 h-24 w-24 rounded-full border-4 border-ui-bg bg-ui-surface shadow-lg overflow-hidden flex items-center justify-center"
+      >
+        <img v-if="avatar" :src="avatar" alt="" class="h-full w-full object-cover" />
+        <span v-else class="text-3xl font-semibold text-tx-muted uppercase">
+          {{ user.slice(0, 1) }}
+        </span>
+      </div>
+
+      <h1 class="text-center text-lg font-semibold text-tx-main">
+        {{ t("lock.title") }}
       </h1>
 
       <div class="flex flex-col gap-1">

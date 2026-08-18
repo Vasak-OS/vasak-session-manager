@@ -22,6 +22,21 @@ fn lock_user() -> String {
     auth::current_user()
 }
 
+/// The face of whoever this session belongs to, or `null` when there is none.
+///
+/// Same places the greeter looks — AccountsService first, then `~/.face` — but
+/// here the home directory is reachable, because this runs as the person whose
+/// session it is.
+#[tauri::command]
+fn lock_avatar() -> Option<String> {
+    let user = auth::current_user();
+    let home = std::env::var("HOME").ok()?;
+
+    crate::users::avatar_path(&user, &home)
+        .as_deref()
+        .and_then(crate::users::image_data_url)
+}
+
 /// Answers the page: does this password open this session?
 ///
 /// On success the lock is released here rather than in the page — the release
@@ -179,6 +194,7 @@ pub fn run() {
         ))
         .invoke_handler(tauri::generate_handler![
             lock_user,
+            lock_avatar,
             unlock,
             wallpaper::lock_background
         ])
@@ -191,7 +207,9 @@ pub fn run() {
                     WebviewUrl::App("index.html#/lock".into()),
                 )
                 .title("Vasak lock (dry-run)")
-                .inner_size(900.0, 600.0)
+                .inner_size(900.0, 700.0)
+                .center()
+                .always_on_top(true)
                 .build()?;
                 return Ok(());
             }

@@ -26,7 +26,7 @@ power:
   poweroff: Shut down
 
 lock:
-  title: "{0}'s session is locked"
+  title: Session locked
   password: Password
   unlock: Unlock
   checking: Checking…
