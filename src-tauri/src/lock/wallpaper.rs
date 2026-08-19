@@ -37,9 +37,6 @@ pub fn lock_background() -> Option<String> {
         .chain(std::iter::once(PathBuf::from(
             "/usr/share/backgrounds/vasakos/default.jpg",
         )))
-        .chain(std::iter::once(PathBuf::from(
-            "/usr/share/backgrounds/cutefishos/wallpaper-9.jpg",
-        )))
         .find(|path| path.is_file())
         .and_then(|path| crate::users::image_data_url(&path))
 }
