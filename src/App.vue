@@ -13,6 +13,8 @@ const {
   load,
   activeScreen,
   background,
+  backgroundVideoUrl,
+  releaseBackgroundVideo,
   layout,
   pointerMoved,
   selectedUser,
@@ -57,6 +59,18 @@ const wallpaper = computed(() =>
   background.value ? { backgroundImage: `url("${background.value}")` } : {},
 );
 
+/**
+ * El video no se pudo reproducir después de todo —contenedor que el
+ * decodificador no acepta, archivo cortado—: se suelta, y el fondo vuelve a ser
+ * la imagen que ya está debajo, en vez de quedar una pantalla negra.
+ */
+const onVideoError = () => {
+  console.error(
+    "El fondo en movimiento no se pudo reproducir; se muestra la imagen.",
+  );
+  releaseBackgroundVideo();
+};
+
 onMounted(load);
 </script>
 
@@ -70,10 +84,32 @@ onMounted(load);
     <div
       v-for="panel in panels"
       :key="panel.key"
-      class="absolute bg-ui-bg bg-cover bg-center"
+      class="absolute bg-ui-bg bg-cover bg-center overflow-hidden"
       :style="{ ...panel.style, ...wallpaper }"
     >
-      <div class="absolute inset-0 bg-black/35"></div>
+      <!-- El fondo en movimiento va encima de la imagen, no en su lugar: la
+           imagen es lo que se ve mientras el video llega y lo que queda si
+           falla. Uno por monitor, como la imagen, aunque eso sea un decodificador
+           por pantalla: es el precio de no mostrar medio cuadro en cada una, y
+           esta pantalla vive unos segundos. -->
+      <video
+        v-if="backgroundVideoUrl"
+        :src="backgroundVideoUrl"
+        class="absolute inset-0 h-full w-full object-cover"
+        autoplay
+        loop
+        muted
+        playsinline
+        disablepictureinpicture
+        tabindex="-1"
+        aria-hidden="true"
+        @error="onVideoError"
+      ></video>
+
+      <!-- La misma atenuación que el resto del sistema usa sobre un fondo, con
+           el color de la interfaz y no uno fijo: es lo que le da contraste al
+           texto sobre cualquier foto o video. -->
+      <div class="absolute inset-0 bg-ui-bg/40"></div>
     </div>
 
     <div
@@ -82,8 +118,12 @@ onMounted(load);
     >
       <GreeterClock />
 
+      <!-- Las mismas transparencias que cualquier superficie de VasakOS:
+           `bg-ui-bg/80` con `backdrop-blur-md` y el borde de la interfaz. El
+           blur es lo que deja que se vea el fondo sin que compita con el
+           formulario. -->
       <div
-        class="bg-ui-bg/80 p-8 rounded-corner shadow-xl w-full max-w-4xl flex flex-col md:flex-row gap-8 backdrop-blur-xl"
+        class="bg-ui-bg/80 backdrop-blur-md border border-ui-border p-8 rounded-corner shadow-xl w-full max-w-4xl flex flex-col md:flex-row gap-8"
       >
         <!-- Accounts. Hidden when there is nobody to choose between, so a
              single-user machine goes straight to the password. -->

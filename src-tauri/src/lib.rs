@@ -69,7 +69,8 @@ pub fn run() {
             state::get_last_login,
             state::set_last_login,
             screens::get_screens,
-            background::get_background
+            background::get_background,
+            background::read_background_video
         ])
         .setup(|app| {
             // La ventana se crea acá y no en tauri.conf.json porque este

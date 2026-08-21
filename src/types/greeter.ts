@@ -31,6 +31,27 @@ export interface LastLogin {
   sessions: Record<string, string>;
 }
 
+/**
+ * El video de fondo, descrito antes de traerlo: la página decide con esto si
+ * vale la pena pedir los bytes, sin haberlos pedido todavía.
+ */
+export interface BackgroundVideo {
+  /** Sólo para los mensajes de error; nunca vuelve a Rust. */
+  path: string;
+  /** Con qué preguntarle a WebKit si tiene el decodificador. */
+  extension: string;
+  /** El tipo del `Blob` con el que se reproduce. */
+  mime: string;
+  bytes: number;
+}
+
+/** El fondo del inicio de sesión: la imagen siempre, el video cuando hay uno. */
+export interface Background {
+  /** `data:` URL, o null cuando no se encontró ninguna imagen usable. */
+  image: string | null;
+  video: BackgroundVideo | null;
+}
+
 /** One physical monitor, in CSS pixels relative to the greeter surface. */
 export interface Screen {
   index: number;

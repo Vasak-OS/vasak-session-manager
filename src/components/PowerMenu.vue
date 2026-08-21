@@ -24,7 +24,7 @@ const run = (cmd: string) => {
       :title="t(action.label)"
       :aria-label="t(action.label)"
       @click="run(action.cmd)"
-      class="w-10 h-10 rounded-corner bg-ui-bg/80 border border-ui-border text-tx-main text-lg leading-none hover:bg-primary hover:text-tx-on-primary transition-colors"
+      class="w-10 h-10 rounded-corner bg-ui-bg/80 backdrop-blur-md border border-ui-border text-tx-main text-lg leading-none hover:bg-primary hover:text-tx-on-primary transition-colors"
     >
       {{ action.glyph }}
     </button>
