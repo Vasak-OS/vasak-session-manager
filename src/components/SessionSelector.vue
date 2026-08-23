@@ -121,7 +121,7 @@ onBeforeUnmount(() =>
         aria-labelledby="session-label"
         @click="toggle"
         @keydown="onKeydown"
-        class="p-2 border border-ui-border rounded-corner w-full bg-ui-bg/80 text-tx-main text-left flex items-center justify-between gap-2 focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
+        class="p-2 border border-ui-border rounded-corner w-full bg-ui-bg/80 backdrop-blur-md text-tx-main text-left flex items-center justify-between gap-2 focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
       >
         <span class="truncate">{{ label }}</span>
         <span class="text-tx-muted text-xs shrink-0" aria-hidden="true">▾</span>
@@ -133,7 +133,7 @@ onBeforeUnmount(() =>
         ref="list"
         role="listbox"
         aria-labelledby="session-label"
-        class="absolute z-20 mt-1 w-full max-h-56 overflow-y-auto rounded-corner border border-ui-border bg-ui-surface shadow-xl py-1"
+        class="absolute z-20 mt-1 w-full max-h-56 overflow-y-auto rounded-corner border border-ui-border bg-ui-surface/90 backdrop-blur-md shadow-xl py-1"
       >
         <li
           v-for="(session, index) in sessions"

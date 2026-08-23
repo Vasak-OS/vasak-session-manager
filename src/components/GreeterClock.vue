@@ -35,7 +35,10 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="text-center select-none">
+  <!-- El único texto que va directo sobre el fondo, y el fondo puede ser un
+       video: la sombra es lo que lo mantiene legible cuando pasa un cuadro
+       claro, sin tener que oscurecer más la foto de todo el mundo. -->
+  <div class="text-center select-none drop-shadow-md">
     <div class="text-6xl font-light text-tx-main tabular-nums">{{ time() }}</div>
     <!-- Only the first letter: `capitalize` would turn "10 de agosto" into
          "10 De Agosto", which is wrong in every language that lowercases its

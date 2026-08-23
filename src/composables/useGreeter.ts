@@ -1,6 +1,8 @@
 import { computed, ref, watch } from "vue";
 import { invoke } from "@tauri-apps/api/core";
 import type {
+  Background,
+  BackgroundVideo,
   KeyboardLayout,
   LastLogin,
   Screen,
@@ -19,7 +21,12 @@ import type {
 const users = ref<SystemUser[]>([]);
 const sessions = ref<Session[]>([]);
 const keyboard = ref<KeyboardLayout>({ layouts: [], switchable: false });
+/** `data:` URL de la imagen de fondo: el respaldo de todo lo demás. */
 const background = ref<string | null>(null);
+/** El video configurado, descrito por Rust pero todavía sin traer. */
+const backgroundVideo = ref<BackgroundVideo | null>(null);
+/** `blob:` del video ya en memoria, que es lo único que se puede reproducir. */
+const backgroundVideoUrl = ref<string | null>(null);
 const layout = ref<ScreenLayout>({ width: 0, height: 0, screens: [] });
 /** Index of the screen the login box is drawn on. */
 const activeScreen = ref(0);
@@ -34,6 +41,104 @@ const usingManualEntry = ref(false);
 const rememberedSessions = ref<Record<string, string>>({});
 
 const loaded = ref(false);
+
+/**
+ * Fondos en movimiento.
+ *
+ * Un `<video src>` apuntando al protocolo interno de Tauri no funciona, y no por
+ * los codecs: el elemento multimedia de WebKit no se sirve del cargador de
+ * recursos de la página sino de GStreamer, que no sabe leer de un esquema
+ * propio. Termina en error 4 (SRC_NOT_SUPPORTED) y encima reintenta, y cada
+ * reintento entrega el archivo entero hasta agotar la memoria. Con `file://`
+ * pasa lo mismo, porque la página no es de ese origen.
+ *
+ * Lo que sí funciona —medido, y es lo que hace el escritorio— es traer los bytes
+ * y reproducirlos desde memoria: acá los pide un comando de Rust, que es el que
+ * puede leer el disco, y salen por el canal binario del IPC sin pasar por
+ * base64. El costo es tener el archivo en RAM, de ahí el límite de tamaño.
+ *
+ * Nada de esto es obligatorio para que se pueda iniciar sesión: cada vez que
+ * algo falla queda la imagen, que ya está dibujada.
+ */
+const MAX_VIDEO_BYTES = 64 * 1024 * 1024;
+
+/**
+ * Qué se le pregunta a WebKit para saber si puede con el archivo.
+ *
+ * Preguntar `video/mp4` a secas no sirve: contesta «maybe» aun cuando no hay
+ * ningún decodificador instalado. Con el codec en la pregunta contesta vacío, y
+ * ahí sí se puede decidir sin intentar. Un mp4 puede traer H.264 o AV1, así que
+ * alcanza con que alguno de los dos sea reproducible.
+ */
+const CODEC_PROBES: Record<string, string[]> = {
+  mp4: ['video/mp4; codecs="avc1.42E01E"', 'video/mp4; codecs="av01.0.04M.08"'],
+  webm: ['video/webm; codecs="vp9"', 'video/webm; codecs="vp8"'],
+  ogv: ['video/ogg; codecs="theora"'],
+};
+
+function canDecode(extension: string): boolean {
+  const probe = document.createElement("video");
+  const types = CODEC_PROBES[extension] ?? [`video/${extension}`];
+  return types.some((type) => probe.canPlayType(type) !== "");
+}
+
+/** Suelta el video: la imagen de abajo vuelve a ser el fondo. */
+function releaseBackgroundVideo() {
+  if (backgroundVideoUrl.value) {
+    URL.revokeObjectURL(backgroundVideoUrl.value);
+    backgroundVideoUrl.value = null;
+  }
+}
+
+/**
+ * Los bytes vuelven por el canal binario del IPC, que los entrega como
+ * `ArrayBuffer` —una vista, sin copiar los megas—. Las otras dos formas están
+ * por si el IPC cae al camino de `postMessage`: son una copia, pero son también
+ * la diferencia entre un fondo y una pantalla negra.
+ */
+function asBytes(raw: unknown): Uint8Array<ArrayBuffer> | null {
+  if (raw instanceof ArrayBuffer) return new Uint8Array(raw);
+  if (raw instanceof Uint8Array) return new Uint8Array(raw);
+  if (Array.isArray(raw)) return new Uint8Array(raw);
+  return null;
+}
+
+async function startBackgroundVideo() {
+  releaseBackgroundVideo();
+
+  const video = backgroundVideo.value;
+  if (!video) return;
+
+  if (!canDecode(video.extension)) {
+    console.error(
+      `El fondo ${video.path} no se puede reproducir: falta el decodificador ` +
+        `para ${video.extension}. Se muestra la imagen de fondo. En VasakOS ` +
+        "lo instala gst-libav.",
+    );
+    return;
+  }
+
+  if (video.bytes > MAX_VIDEO_BYTES) {
+    console.error(
+      `El fondo ${video.path} pesa ${Math.round(video.bytes / 1024 / 1024)} MB ` +
+        `y el límite es ${MAX_VIDEO_BYTES / 1024 / 1024} MB: se reproduce desde ` +
+        "memoria, y esta pantalla es lo primero que arranca en la máquina.",
+    );
+    return;
+  }
+
+  try {
+    const bytes = asBytes(await invoke("read_background_video"));
+    if (!bytes || bytes.byteLength === 0) throw new Error("no llegaron bytes");
+
+    backgroundVideoUrl.value = URL.createObjectURL(
+      new Blob([bytes], { type: video.mime }),
+    );
+  } catch (reason) {
+    console.error(`No se pudo leer el fondo ${video.path}: ${reason}`);
+    releaseBackgroundVideo();
+  }
+}
 
 /** The name to authenticate with, whichever way it was chosen. */
 const username = computed(() =>
@@ -88,7 +193,9 @@ export function useGreeter() {
           height: 0,
           screens: [] as Screen[],
         })),
-        invoke<string | null>("get_background").catch(() => null),
+        invoke<Background>("get_background").catch(
+          () => ({ image: null, video: null }) as Background,
+        ),
       ]);
 
     users.value = userList;
@@ -96,7 +203,8 @@ export function useGreeter() {
     keyboard.value = keyboardLayout;
     rememberedSessions.value = last.sessions ?? {};
     layout.value = screens;
-    background.value = wallpaper;
+    background.value = wallpaper.image;
+    backgroundVideo.value = wallpaper.video;
 
     activeScreen.value =
       screens.screens.find((screen) => screen.primary)?.index ?? 0;
@@ -112,6 +220,11 @@ export function useGreeter() {
     // empty list with no way forward.
     usingManualEntry.value = userList.length === 0;
     loaded.value = true;
+
+    // Sin esperarlo: el cuadro de inicio de sesión ya está dibujado sobre la
+    // imagen, y el video puede pesar decenas de megas. Que se pueda escribir la
+    // contraseña no depende de esto.
+    void startBackgroundVideo();
   }
 
   function selectUser(user: SystemUser) {
@@ -161,6 +274,8 @@ export function useGreeter() {
     sessions,
     keyboard,
     background,
+    backgroundVideoUrl,
+    releaseBackgroundVideo,
     layout,
     activeScreen,
     selectedUser,
