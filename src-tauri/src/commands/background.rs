@@ -15,6 +15,7 @@
 //! leer `file://` desde su propio origen, y abrirle el sistema de archivos por
 //! un fondo es un mal negocio en una pantalla que maneja contraseñas.
 
+use std::io::Read;
 use std::path::{Path, PathBuf};
 
 /// Un reemplazo, una ruta absoluta por archivo, gana la primera línea no vacía.
@@ -189,11 +190,22 @@ pub fn get_background() -> Background {
 pub fn read_background_video() -> Result<tauri::ipc::Response, String> {
     let video = pick_video().ok_or_else(|| "no hay video de fondo que leer".to_string())?;
 
-    let bytes = std::fs::read(&video.path)
+    // Se lee acotado, no completo y después se revisa. `std::fs::read` reserva
+    // el archivo entero antes de que cualquier control pueda opinar: si creció
+    // entre que `pick_video` lo midió y esto lo abre, el proceso ya pagó la
+    // memoria y el control sólo llega a contarlo. Y esta pantalla es el primer
+    // proceso de la máquina, así que esa memoria se nota.
+    //
+    // Se pide un byte más que el límite: si llega ese byte extra, el archivo se
+    // pasa y se rechaza sin haber reservado más que eso.
+    let archivo = std::fs::File::open(&video.path)
+        .map_err(|error| format!("no se pudo abrir el fondo {}: {error}", video.path))?;
+
+    let mut bytes = Vec::new();
+    std::io::Read::take(archivo, MAX_VIDEO_BYTES + 1)
+        .read_to_end(&mut bytes)
         .map_err(|error| format!("no se pudo leer el fondo {}: {error}", video.path))?;
 
-    // El tamaño se comprobó sobre los metadatos; volver a comprobarlo sobre lo
-    // leído cierra la ventana entre una cosa y la otra.
     if bytes.len() as u64 > MAX_VIDEO_BYTES {
         return Err(format!(
             "el fondo {} creció por encima del límite mientras se leía",
@@ -208,6 +220,32 @@ pub fn read_background_video() -> Result<tauri::ipc::Response, String> {
 mod tests {
     use super::*;
     use std::io::Write;
+
+    /// Lo que pidió la revisión: el límite tiene que acotar **la lectura**, no
+    /// sólo revisar lo que ya se cargó en memoria. Se comprueba sobre el
+    /// mecanismo —`take`— con un archivo más grande que el tope.
+    #[test]
+    fn la_lectura_se_corta_en_el_limite_en_vez_de_cargar_todo() {
+        let dir = std::env::temp_dir().join("vasak-fondo-limite");
+        let _ = std::fs::create_dir_all(&dir);
+        let grande = dir.join("grande.bin");
+
+        let tope: u64 = 1024;
+        std::fs::write(&grande, vec![0u8; (tope * 4) as usize]).unwrap();
+
+        let archivo = std::fs::File::open(&grande).unwrap();
+        let mut leido = Vec::new();
+        std::io::Read::take(archivo, tope + 1)
+            .read_to_end(&mut leido)
+            .unwrap();
+
+        assert_eq!(
+            leido.len() as u64,
+            tope + 1,
+            "sólo se reserva un byte más que el tope, no el archivo entero"
+        );
+        assert!(leido.len() as u64 > tope, "y ese byte extra es el que delata que se pasó");
+    }
 
     #[test]
     fn los_videos_se_reconocen_por_extension_sin_importar_la_capitalizacion() {
