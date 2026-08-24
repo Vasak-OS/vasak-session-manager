@@ -87,7 +87,10 @@ const submit = async () => {
     />
     <div v-if="background" class="absolute inset-0 bg-ui-bg/70"></div>
 
-    <div class="relative flex flex-col items-center gap-10 w-full">
+    <!-- La separación tiene que ser mayor que lo que la foto sobresale del
+         formulario (-top-12, 48px), o el avatar se le sube encima a la fecha:
+         con gap-10 quedaba 40px y se solapaban. -->
+    <div class="relative flex flex-col items-center gap-20 w-full">
       <GreeterClock />
 
     <form
