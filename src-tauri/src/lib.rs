@@ -14,6 +14,8 @@ mod state;
 mod screens;
 #[path = "./commands/background.rs"]
 mod background;
+#[path = "./commands/appearance.rs"]
+mod appearance;
 mod lock;
 
 pub use lock::run as run_lock;
@@ -70,7 +72,8 @@ pub fn run() {
             state::set_last_login,
             screens::get_screens,
             background::get_background,
-            background::read_background_video
+            background::read_background_video,
+            appearance::get_appearance
         ])
         .setup(|app| {
             // La ventana se crea acá y no en tauri.conf.json porque este
