@@ -6,6 +6,16 @@ import LockView from "./LockView.vue";
 import "./style.css";
 import { loadAppearance } from "@/composables/useAppearance";
 
+// Una violación de CSP no se ve: el recurso simplemente no carga y la interfaz
+// queda a medias sin decir nada. Esto la manda a la consola, que es donde se
+// puede encontrar al ajustar la política.
+document.addEventListener('securitypolicyviolation', (evento) => {
+	console.error(
+		`[CSP] bloqueado ${evento.blockedURI || '(en línea)'} por la directiva ` +
+			`«${evento.violatedDirective}» en ${evento.sourceFile ?? 'documento'}:${evento.lineNumber}`
+	);
+});
+
 // Two screens, one bundle: the greeter and the lock screen are the same
 // interface over different moments — one before there is a session, one over a
 // session that already exists. The window URL is what says which is being
