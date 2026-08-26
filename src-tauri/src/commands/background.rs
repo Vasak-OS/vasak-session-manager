@@ -107,7 +107,7 @@ fn is_video(path: &Path) -> bool {
 fn usable_size(path: &Path, max: u64) -> Option<u64> {
     let meta = std::fs::metadata(path).ok()?;
 
-    (meta.is_file() && meta.len() > 0 && meta.len() <= max).then(|| meta.len())
+    (meta.is_file() && meta.len() > 0 && meta.len() <= max).then_some(meta.len())
 }
 
 /// La imagen de fondo, que es también el respaldo del video.
