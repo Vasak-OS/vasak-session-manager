@@ -60,7 +60,7 @@ fn login_defs_value(key: &str) -> Option<u32> {
         if !rest.starts_with(char::is_whitespace) {
             return None;
         }
-        rest.trim().split_whitespace().next()?.parse().ok()
+        rest.split_whitespace().next()?.parse().ok()
     })
 }
 
