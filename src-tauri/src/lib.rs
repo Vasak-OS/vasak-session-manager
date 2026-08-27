@@ -16,6 +16,7 @@ mod screens;
 mod background;
 #[path = "./commands/appearance.rs"]
 mod appearance;
+pub mod migracion;
 mod lock;
 
 pub use lock::run as run_lock;
