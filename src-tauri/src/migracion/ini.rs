@@ -87,7 +87,7 @@ pub fn tiene(texto: &str, seccion: &str, clave: &str) -> bool {
 /// secas convierte un archivo con terminadores de Windows entero. Y el prometido de
 /// este módulo es que el archivo del usuario se conserva: cambiarle los mil
 /// terminadores para agregar una clave no es conservarlo.
-fn terminador_de(texto: &str) -> &'static str {
+pub fn terminador_de(texto: &str) -> &'static str {
     if texto.contains("\r\n") {
         "\r\n"
     } else {

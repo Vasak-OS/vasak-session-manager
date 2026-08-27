@@ -65,6 +65,11 @@ pub fn asegurar(usuario: &str, insercion: &Insercion) -> Option<String> {
         return None;
     }
 
+    // Los terminadores del archivo se conservan, igual que en `ini`: `str::lines()`
+    // se come tanto `\n` como `\r\n`, y reconstruir con `\n` a secas convierte un
+    // archivo con terminadores de Windows entero. Y el salto final se deja como
+    // estaba: agregarle uno es cambiar el archivo por algo que nadie pidió.
+    let terminador = super::ini::terminador_de(usuario);
     let mut lineas: Vec<&str> = usuario.lines().collect();
     let donde = usize::from(lineas.first().is_some_and(|l| l.starts_with("#!")));
 
@@ -77,9 +82,9 @@ pub fn asegurar(usuario: &str, insercion: &Insercion) -> Option<String> {
         lineas.insert(donde + nuevas.len(), "");
     }
 
-    let mut texto = lineas.join("\n");
-    if !texto.ends_with('\n') {
-        texto.push('\n');
+    let mut texto = lineas.join(terminador);
+    if usuario.ends_with('\n') || usuario.is_empty() {
+        texto.push_str(terminador);
     }
     Some(texto)
 }
@@ -172,5 +177,22 @@ mod tests {
         for i in INSERCIONES {
             assert!(!i.texto.contains("source "), "{} usa source", i.archivo);
         }
+    }
+
+    #[test]
+    fn los_terminadores_de_windows_no_se_reescriben() {
+        // El mismo cuidado que en `ini`: reconstruir con `\n` a secas convierte el
+        // archivo entero, y este módulo también promete conservarlo.
+        let usuario = "#!/bin/zsh\r\nexport EDITOR=vim\r\n";
+        let r = asegurar(usuario, zshrc()).expect("se agrega");
+        assert_eq!(r.matches('\n').count(), r.matches("\r\n").count(), "{r:?}");
+        assert!(r.starts_with("#!/bin/zsh\r\n"), "{r:?}");
+    }
+
+    #[test]
+    fn un_archivo_sin_salto_final_no_recibe_uno() {
+        let r = asegurar("export EDITOR=vim", zshrc()).expect("se agrega");
+        assert!(!r.ends_with('\n'), "{r:?}");
+        assert!(r.contains("export EDITOR=vim"));
     }
 }
