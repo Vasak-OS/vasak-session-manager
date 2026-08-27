@@ -25,6 +25,13 @@ path = "src/main.rs"
 name = "vasak-lock-screen"
 path = "src/lock_main.rs"
 
+# Lleva a una cuenta que ya existe las opciones nuevas del paquete, sin pisar lo
+# que la persona configuró. `/etc/skel` sólo alcanza a las cuentas nuevas, así que
+# sin esto una actualización del escritorio no llega nunca a quien ya lo usaba.
+[[bin]]
+name = "vasak-config-migrate"
+path = "src/config_migrate_main.rs"
+
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 
