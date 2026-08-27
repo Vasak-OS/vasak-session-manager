@@ -40,6 +40,7 @@
 
 pub mod estado;
 pub mod ini;
+pub mod lineas;
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
@@ -65,6 +66,12 @@ pub const ARCHIVOS: [&str; 4] = [
 
 /// De dónde salen los valores por omisión.
 pub const SKEL: &str = "/etc/skel";
+
+/// La sección con la que se anotan las líneas de los archivos que son programas.
+///
+/// Con un nombre que no puede ser una sección de un INI de verdad, para que no
+/// choque con una clave que se llame igual.
+pub const SECCION_DE_LINEA: &str = "@linea";
 
 /// Qué pasó con un archivo.
 #[derive(Debug, PartialEq, Eq)]
@@ -164,6 +171,53 @@ pub fn aplicar(
         resultados.push(Resultado {
             archivo: relativo.to_string(),
             agregadas,
+            motivo: None,
+        });
+    }
+
+    // Los archivos que son programas: una sola línea que carga el del paquete. Ver
+    // `lineas`. La marca del registro usa la sección `@linea` para que no choque
+    // con una clave de un INI que se llame igual.
+    for insercion in lineas::INSERCIONES {
+        let del_usuario = hogar.join(insercion.archivo);
+        let Ok(usuario) = std::fs::read_to_string(&del_usuario) else {
+            resultados.push(Resultado::saltado(insercion.archivo, "la cuenta no lo tiene"));
+            continue;
+        };
+
+        let marca = (
+            insercion.archivo.to_string(),
+            SECCION_DE_LINEA.to_string(),
+            insercion.marca.to_string(),
+        );
+        if ya.contains(&marca) {
+            continue;
+        }
+
+        let Some(nuevo) = lineas::asegurar(&usuario, &insercion) else {
+            resultados.push(Resultado {
+                archivo: insercion.archivo.to_string(),
+                agregadas: Vec::new(),
+                motivo: None,
+            });
+            continue;
+        };
+
+        if escribir {
+            if let Err(e) = escritura_atomica(&del_usuario, &nuevo) {
+                resultados.push(Resultado::saltado(
+                    insercion.archivo,
+                    &format!("no se pudo escribir: {e}"),
+                ));
+                continue;
+            }
+            ya.insert(marca);
+            hubo_cambios = true;
+        }
+
+        resultados.push(Resultado {
+            archivo: insercion.archivo.to_string(),
+            agregadas: vec![(SECCION_DE_LINEA.to_string(), insercion.marca.to_string())],
             motivo: None,
         });
     }
@@ -354,5 +408,51 @@ mod tests {
             assert!(!a.starts_with('/'), "{a} tiene que ser relativo al hogar");
             assert!(!a.contains(".."), "{a}");
         }
+    }
+
+    #[test]
+    fn los_archivos_que_son_programas_reciben_la_linea() {
+        // No se fusionan por clave —son programas— así que lo único que se asegura
+        // es la línea que carga el archivo del paquete.
+        let (hogar, skel, registro) = escenario("lineas");
+        poner(&hogar, ".zshrc", "export EDITOR=vim\n");
+
+        aplicar(&hogar, &skel, &registro, true);
+        let despues = std::fs::read_to_string(hogar.join(".zshrc")).unwrap();
+        assert!(despues.contains("/usr/share/vasak/shell/zshrc"), "{despues}");
+        assert!(despues.contains("export EDITOR=vim"), "no se perdió lo suyo");
+        let _ = std::fs::remove_dir_all(hogar.parent().unwrap());
+    }
+
+    #[test]
+    fn la_linea_quitada_a_proposito_no_vuelve() {
+        // Igual que con las claves: si alguien la sacó, se respeta.
+        let (hogar, skel, registro) = escenario("linea-quitada");
+        poner(&hogar, ".zshrc", "export EDITOR=vim\n");
+
+        aplicar(&hogar, &skel, &registro, true);
+        poner(&hogar, ".zshrc", "export EDITOR=vim\n");
+
+        aplicar(&hogar, &skel, &registro, true);
+        let despues = std::fs::read_to_string(hogar.join(".zshrc")).unwrap();
+        assert!(!despues.contains("/usr/share/vasak/shell/zshrc"), "volvió: {despues}");
+        let _ = std::fs::remove_dir_all(hogar.parent().unwrap());
+    }
+
+    #[test]
+    fn no_se_le_crea_un_zshrc_a_quien_no_lo_tiene() {
+        // Puede no usar zsh; crearle el archivo sería inventarle configuración.
+        let (hogar, skel, registro) = escenario("sin-zshrc");
+        aplicar(&hogar, &skel, &registro, true);
+        assert!(!hogar.join(".zshrc").exists());
+        let _ = std::fs::remove_dir_all(hogar.parent().unwrap());
+    }
+
+    #[test]
+    fn la_seccion_de_linea_no_puede_confundirse_con_una_de_ini() {
+        // Si se llamara como una sección real, una clave homónima haría que la
+        // línea no se agregara nunca, o al revés.
+        assert!(SECCION_DE_LINEA.starts_with('@'));
+        assert!(!ARCHIVOS.iter().any(|a| a.contains(SECCION_DE_LINEA)));
     }
 }

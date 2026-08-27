@@ -47,7 +47,10 @@ fn main() {
         cambios += r.agregadas.len();
         let que = if prueba { "agregaría" } else { "agregado" };
         for (seccion, clave) in &r.agregadas {
-            let donde = if seccion.is_empty() {
+            let donde = if seccion == migracion::SECCION_DE_LINEA {
+                // Una línea que carga el archivo del paquete, no una clave.
+                format!("la línea que carga {clave}")
+            } else if seccion.is_empty() {
                 clave.clone()
             } else {
                 format!("{seccion}.{clave}")
