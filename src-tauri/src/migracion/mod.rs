@@ -128,8 +128,25 @@ pub fn aplicar(
     ruta_estado: &Path,
     escribir: bool,
 ) -> Vec<Resultado> {
-    let mut ya = estado::leer(&std::fs::read_to_string(ruta_estado).unwrap_or_default());
+    // Un error al leer el registro **no** es un registro vacío.
+    //
+    // Con `unwrap_or_default()`, un `PermissionDenied` o un `EIO` se volvían un
+    // conjunto vacío, y entonces todo lo que alguien había borrado a propósito se
+    // le volvía a agregar. Eso es justo lo contrario del prometido. Que no exista
+    // sí es un registro vacío —es la primera vez—, cualquier otra cosa es motivo
+    // para no tocar nada.
     let mut resultados = Vec::new();
+    let mut ya = match std::fs::read_to_string(ruta_estado) {
+        Ok(texto) => estado::leer(&texto),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => HashSet::new(),
+        Err(e) => {
+            resultados.push(Resultado::saltado(
+                estado::NOMBRE,
+                &format!("no se pudo leer el registro, no se toca nada: {e}"),
+            ));
+            return resultados;
+        }
+    };
     let mut hubo_cambios = false;
 
     for relativo in ARCHIVOS {
@@ -454,5 +471,45 @@ mod tests {
         // línea no se agregara nunca, o al revés.
         assert!(SECCION_DE_LINEA.starts_with('@'));
         assert!(!ARCHIVOS.iter().any(|a| a.contains(SECCION_DE_LINEA)));
+    }
+
+    #[test]
+    fn un_registro_ilegible_hace_que_no_se_toque_nada() {
+        // Con `unwrap_or_default()`, un error de permisos se volvía un registro
+        // vacío y todo lo que alguien había borrado a propósito se le volvía a
+        // agregar: lo contrario de lo que este módulo promete.
+        let (hogar, skel, _) = escenario("registro-ilegible");
+        poner(&hogar, ".config/wayfire.ini", "[animate]\nduration = 300\n");
+        poner(&skel, ".config/wayfire.ini", "[animate]\nopen_animation = fade\n");
+
+        // Un directorio donde va el archivo: leerlo da `IsADirectory`, no
+        // `NotFound`, que es lo que distingue «primera vez» de «algo anda mal».
+        let registro = hogar.join("registro-que-es-directorio");
+        std::fs::create_dir_all(&registro).unwrap();
+
+        let r = aplicar(&hogar, &skel, &registro, true);
+        assert!(
+            r.iter().any(|x| x.motivo.as_deref().is_some_and(|m| m.contains("registro"))),
+            "{r:?}"
+        );
+        // Y el archivo quedó intacto.
+        let despues = std::fs::read_to_string(hogar.join(".config/wayfire.ini")).unwrap();
+        assert_eq!(despues, "[animate]\nduration = 300\n");
+        let _ = std::fs::remove_dir_all(hogar.parent().unwrap());
+    }
+
+    #[test]
+    fn la_primera_vez_no_es_un_error() {
+        // Que el registro no exista es lo normal la primera vez, y ahí sí hay que
+        // aplicar.
+        let (hogar, skel, registro) = escenario("primera-vez");
+        poner(&hogar, ".config/wayfire.ini", "[animate]\nduration = 300\n");
+        poner(&skel, ".config/wayfire.ini", "[animate]\nopen_animation = fade\n");
+        assert!(!registro.exists());
+
+        aplicar(&hogar, &skel, &registro, true);
+        let despues = std::fs::read_to_string(hogar.join(".config/wayfire.ini")).unwrap();
+        assert!(despues.contains("open_animation = fade"), "{despues}");
+        let _ = std::fs::remove_dir_all(hogar.parent().unwrap());
     }
 }

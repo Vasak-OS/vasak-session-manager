@@ -81,6 +81,20 @@ pub fn tiene(texto: &str, seccion: &str, clave: &str) -> bool {
         .any(|a| a.seccion == seccion && a.clave == clave)
 }
 
+/// El terminador de línea que usa el archivo.
+///
+/// `str::lines()` se come tanto `\n` como `\r\n`, así que reconstruir con `\n` a
+/// secas convierte un archivo con terminadores de Windows entero. Y el prometido de
+/// este módulo es que el archivo del usuario se conserva: cambiarle los mil
+/// terminadores para agregar una clave no es conservarlo.
+fn terminador_de(texto: &str) -> &'static str {
+    if texto.contains("\r\n") {
+        "\r\n"
+    } else {
+        "\n"
+    }
+}
+
 /// Dónde termina una sección: el índice de línea **después** de su última línea
 /// con contenido.
 ///
@@ -92,7 +106,11 @@ fn fin_de_seccion(lineas: &[&str], seccion: &str) -> Option<usize> {
     for (i, linea) in lineas.iter().enumerate() {
         if let Some(s) = seccion_de(linea) {
             if actual == seccion {
-                break;
+                // Una clave sin sección va **antes** del primer encabezado. Puesta
+                // al final del archivo, el analizador la asocia con la última
+                // sección: una clave global del paquete terminaba dentro de
+                // `[core]` en un archivo que sólo tiene `[core]`.
+                return Some(ultima_con_contenido.map_or(i, |u| u + 1));
             }
             actual = s.to_string();
             if actual == seccion {
@@ -122,6 +140,7 @@ pub fn fusionar(
     paquete: &str,
     ya_ofrecidas: &dyn Fn(&str, &str) -> bool,
 ) -> (String, Agregado) {
+    let terminador = terminador_de(usuario);
     let mut lineas: Vec<String> = usuario.lines().map(|l| l.to_string()).collect();
     let mut agregado = Agregado::default();
 
@@ -150,11 +169,13 @@ pub fn fusionar(
         agregado.claves.push((a.seccion.clone(), a.clave.clone()));
     }
 
-    let mut texto = lineas.join("\n");
-    // Se conserva el salto final si el original lo tenía: sin él, `git diff` y
-    // varios editores marcan el archivo como cambiado en la última línea.
-    if usuario.ends_with('\n') || (!usuario.is_empty() && !texto.ends_with('\n')) {
-        texto.push('\n');
+    let mut texto = lineas.join(terminador);
+    // El salto final se conserva **como estaba**: si el original lo tenía, va; si
+    // no lo tenía, no se le agrega. Agregarlo era cambiar el archivo por algo que
+    // nadie pidió, y `git diff` lo marca igual que quitarlo.
+    let termina_con_salto = usuario.ends_with('\n');
+    if termina_con_salto || usuario.is_empty() {
+        texto.push_str(terminador);
     }
     (texto, agregado)
 }
@@ -308,5 +329,58 @@ mod tests {
         let a = asignaciones_de("[comando]\nbinding = sh -c 'x=1'\n");
         assert_eq!(a[0].clave, "binding");
         assert_eq!(a[0].valor, "sh -c 'x=1'");
+    }
+
+    #[test]
+    fn los_terminadores_de_windows_no_se_reescriben() {
+        // `str::lines()` se come tanto `\n` como `\r\n`, así que reconstruir con
+        // `\n` a secas convierte el archivo entero. Cambiarle los mil terminadores
+        // para agregar una clave no es «conservar el archivo del usuario».
+        let usuario = "[animate]\r\nduration = 300\r\n";
+        let paquete = "[animate]\nopen_animation = fade\n";
+        let (r, _) = fusionar(usuario, paquete, &nada_ofrecido);
+        assert!(r.contains("\r\n"), "{r:?}");
+        assert!(!r.contains("\n\n"), "no se mezclan estilos: {r:?}");
+        assert_eq!(r.matches('\n').count(), r.matches("\r\n").count());
+    }
+
+    #[test]
+    fn un_archivo_sin_salto_final_no_recibe_uno() {
+        // Agregarlo era cambiar el archivo por algo que nadie pidió, y `git diff`
+        // lo marca igual que quitarlo.
+        let (r, _) = fusionar("[a]\nx = 1", "[a]\ny = 2", &nada_ofrecido);
+        assert!(!r.ends_with('\n'), "{r:?}");
+        assert!(r.contains("y = 2"));
+    }
+
+    #[test]
+    fn una_clave_sin_seccion_va_antes_del_primer_encabezado() {
+        // Puesta al final, el analizador la asocia con la última sección: una clave
+        // global del paquete terminaba dentro de `[core]`.
+        let usuario = "[core]\nplugins = expo\n";
+        let paquete = "global = 1\n[core]\nplugins = expo\n";
+        let (r, a) = fusionar(usuario, paquete, &nada_ofrecido);
+        assert_eq!(a.claves, vec![(String::new(), "global".to_string())]);
+        let pos_global = r.find("global = 1").expect("está");
+        let pos_core = r.find("[core]").expect("está");
+        assert!(pos_global < pos_core, "quedó dentro de [core]: {r}");
+
+        // Y volviendo a leerlo, la clave no pertenece a ninguna sección.
+        let leidas = asignaciones_de(&r);
+        let global = leidas.iter().find(|x| x.clave == "global").expect("está");
+        assert_eq!(global.seccion, "");
+    }
+
+    #[test]
+    fn una_clave_sin_seccion_va_despues_del_preambulo_que_ya_habia() {
+        // Si ya hay claves globales, la nueva va con ellas y no arriba de todo, que
+        // podría meterse antes de un comentario de cabecera.
+        let usuario = "# cabecera\nuna = 1\n\n[core]\nplugins = expo\n";
+        let paquete = "otra = 2\n";
+        let (r, _) = fusionar(usuario, paquete, &nada_ofrecido);
+        assert!(r.starts_with("# cabecera\n"), "{r}");
+        let pos = |t: &str| r.find(t).unwrap();
+        assert!(pos("una = 1") < pos("otra = 2"));
+        assert!(pos("otra = 2") < pos("[core]"), "{r}");
     }
 }
