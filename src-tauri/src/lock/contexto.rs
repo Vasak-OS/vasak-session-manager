@@ -11,6 +11,7 @@
 //!   secreto, y los dos botones que hacen falta.
 
 use serde::Serialize;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 use zbus::blocking::{Connection, Proxy};
 
@@ -86,7 +87,8 @@ fn conexion() -> Option<Connection> {
 /// Las aplicaciones con avisos sin leer, o una lista vacía.
 #[tauri::command]
 pub fn lock_notifications() -> Vec<AplicacionConAvisos> {
-    con_espera(avisos_sin_leer).unwrap_or_default()
+    static EN_VUELO: AtomicBool = AtomicBool::new(false);
+    con_espera(&EN_VUELO, avisos_sin_leer).unwrap_or_default()
 }
 
 fn avisos_sin_leer() -> Vec<AplicacionConAvisos> {
@@ -122,7 +124,8 @@ fn avisos_sin_leer() -> Vec<AplicacionConAvisos> {
 /// contexto de esta sesión, es ruido en una pantalla que tiene que decir poco.
 #[tauri::command]
 pub fn lock_media() -> Option<Reproduccion> {
-    con_espera(reproduccion_actual).flatten()
+    static EN_VUELO: AtomicBool = AtomicBool::new(false);
+    con_espera(&EN_VUELO, reproduccion_actual).flatten()
 }
 
 fn reproduccion_actual() -> Option<Reproduccion> {
@@ -233,16 +236,37 @@ fn leer_reproductor(conexion: &Connection, bus: &str) -> Option<Reproduccion> {
 ///
 /// `zbus` bloqueante no tiene tiempo de espera propio, y un reproductor que no
 /// contesta —pasa: una pestaña del navegador que se quedó— dejaría sin dibujar
-/// la única pantalla desde la que se puede volver a entrar. El hilo que quedó
-/// esperando termina solo cuando le contesten, o cuando se cierre la pantalla.
-fn con_espera<T, F>(consulta: F) -> Option<T>
+/// la única pantalla desde la que se puede volver a entrar.
+///
+/// **Con un hilo por consulta como techo.** Rendirse no cancela el hilo: sigue
+/// esperando hasta que le contesten. Y esto se llama en cada refresco, cada cinco
+/// segundos, así que con un servicio que no contesta nunca se acumulaba un hilo
+/// bloqueado por refresco —doce por minuto, cada uno con su pila y su conexión al
+/// bus— hasta agotar los recursos del proceso. En la pantalla de bloqueo eso
+/// significa quedarse afuera de la sesión.
+///
+/// El testigo lo pone quien llama, uno por consulta, así que una que se colgó no
+/// frena a la otra. Mientras la anterior siga en vuelo se devuelve `None` y la
+/// interfaz muestra lo último que supo, que es exactamente lo que hacía al vencer
+/// el plazo.
+fn con_espera<T, F>(en_vuelo: &'static AtomicBool, consulta: F) -> Option<T>
 where
     T: Send + 'static,
     F: FnOnce() -> T + Send + 'static,
 {
+    // `swap` y no `load` + `store`: entre las dos podría entrar otro refresco y
+    // los dos verían el testigo libre.
+    if en_vuelo.swap(true, Ordering::SeqCst) {
+        return None;
+    }
+
     let (emisor, receptor) = std::sync::mpsc::channel();
     std::thread::spawn(move || {
-        let _ = emisor.send(consulta());
+        let resultado = consulta();
+        // Se libera **después** de consultar y antes de enviar: si se liberara al
+        // salir del hilo, un `send` a un receptor que ya se fue lo dejaría tomado.
+        en_vuelo.store(false, Ordering::SeqCst);
+        let _ = emisor.send(resultado);
     });
     receptor.recv_timeout(ESPERA).ok()
 }
@@ -340,5 +364,41 @@ mod pruebas {
             "org.mpris.MediaPlayer2.vlc".into(),
             "Quit".into()
         ));
+    }
+
+    #[test]
+    fn una_consulta_colgada_no_acumula_hilos() {
+        // Es el arreglo: rendirse no cancela el hilo, y esto corre en cada refresco
+        // —cada cinco segundos—, así que con un servicio que no contesta nunca se
+        // juntaba un hilo bloqueado por refresco hasta agotar el proceso. En la
+        // pantalla de bloqueo eso es quedarse afuera de la sesión.
+        static EN_VUELO: AtomicBool = AtomicBool::new(false);
+        let (suelta, espera) = std::sync::mpsc::channel::<()>();
+
+        // La primera se cuelga esperando el canal, así que vence el plazo.
+        assert_eq!(con_espera(&EN_VUELO, move || { let _ = espera.recv(); 1u8 }), None);
+        assert!(EN_VUELO.load(Ordering::SeqCst), "sigue en vuelo");
+
+        // La segunda no arranca ningún hilo: devuelve `None` en el acto.
+        let antes = std::time::Instant::now();
+        assert_eq!(con_espera(&EN_VUELO, || 2u8), None);
+        assert!(antes.elapsed() < ESPERA, "no esperó el plazo, así que no lanzó nada");
+
+        // Y cuando la primera termina, el testigo queda libre para la siguiente.
+        drop(suelta);
+        let mut intentos = 0;
+        while EN_VUELO.load(Ordering::SeqCst) && intentos < 50 {
+            std::thread::sleep(std::time::Duration::from_millis(10));
+            intentos += 1;
+        }
+        assert!(!EN_VUELO.load(Ordering::SeqCst), "el testigo tiene que liberarse");
+        assert_eq!(con_espera(&EN_VUELO, || 3u8), Some(3));
+    }
+
+    #[test]
+    fn una_consulta_que_contesta_no_bloquea_a_la_siguiente() {
+        static EN_VUELO: AtomicBool = AtomicBool::new(false);
+        assert_eq!(con_espera(&EN_VUELO, || 1u8), Some(1));
+        assert_eq!(con_espera(&EN_VUELO, || 2u8), Some(2));
     }
 }

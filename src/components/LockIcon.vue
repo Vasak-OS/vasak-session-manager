@@ -20,10 +20,18 @@ const props = withDefaults(defineProps<{ name: string; size?: number; alt?: stri
 
 const src = ref('');
 
+// Un contador de pedidos, porque la resolución es asíncrona: si el nombre
+// cambia mientras el anterior todavía se está resolviendo, la respuesta vieja
+// puede llegar después y pisar a la nueva. En una fila de iconos de
+// aplicaciones eso es mostrar el de otra.
+let pedido = 0;
+
 watch(
 	() => props.name,
 	async (name) => {
-		src.value = name ? await getIconSource(name) : '';
+		const propio = ++pedido;
+		const resuelto = name ? await getIconSource(name) : '';
+		if (propio === pedido) src.value = resuelto;
 	},
 	{ immediate: true },
 );
