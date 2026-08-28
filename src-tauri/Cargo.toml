@@ -43,11 +43,17 @@ base64 = "0.22"
 libc = "0.2.189"
 tauri-plugin-i18n-vsk = "2.1.1"
 tauri-plugin-config-manager = "2"
+# Los iconos de las aplicaciones con avisos: hay que resolverlos contra el tema.
+tauri-plugin-vicons = "2"
 gtk = "0.18"
 gdk = "0.18"
 glib = "0.18"
 pam = "0.8"
 zeroize = "1"
+# Para leer las notificaciones sin leer y el reproductor. La API bloqueante
+# alcanza —son tres consultas puntuales, no un flujo— y así no entra un runtime
+# asíncrono entero en una pantalla que tiene que arrancar rápido.
+zbus = { version = "4", default-features = false, features = ["blocking", "async-io"] }
 
 [profile.dev]
 incremental = true # Compile your binary in smaller steps.

@@ -1,6 +1,7 @@
 //! The lock screen: the greeter's face, over an already open session.
 
 mod auth;
+mod contexto;
 mod session_lock;
 mod wallpaper;
 
@@ -188,6 +189,7 @@ pub fn run() {
 
     tauri::Builder::default()
         .plugin(tauri_plugin_config_manager::init())
+        .plugin(tauri_plugin_vicons::init())
         .plugin(tauri_plugin_i18n_vsk::init_with_path(
             Some(crate::default_locale()),
             crate::locales_dir(),
@@ -196,6 +198,9 @@ pub fn run() {
             lock_user,
             lock_avatar,
             unlock,
+            contexto::lock_notifications,
+            contexto::lock_media,
+            contexto::lock_media_action,
             wallpaper::lock_background
         ])
         .setup(|app| {

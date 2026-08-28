@@ -33,3 +33,9 @@ lock:
   wrongPassword: La contraseña no es correcta.
   error: No se pudo comprobar la contraseña.
   capsLock: Bloq Mayús está activado
+  notifications: Avisos sin leer
+  notificationsOne: "{0} sin leer en {1}"
+  notificationsMany: "{0} sin leer en {1}"
+  nowPlaying: Sonando
+  pause: Pausar
+  next: Siguiente
