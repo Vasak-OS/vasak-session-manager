@@ -33,3 +33,9 @@ lock:
   wrongPassword: Wrong password.
   error: The password could not be checked.
   capsLock: Caps Lock is on
+  notifications: Unread notifications
+  notificationsOne: "{0} unread in {1}"
+  notificationsMany: "{0} unread in {1}"
+  nowPlaying: Now playing
+  pause: Pause
+  next: Next

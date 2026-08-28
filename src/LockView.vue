@@ -5,8 +5,19 @@ import { useConfigStore } from "@vasakgroup/plugin-config-manager";
 import type { Store } from "pinia";
 import { nextTick, onMounted, ref } from "vue";
 import GreeterClock from "@/components/GreeterClock.vue";
+import LockIcon from "@/components/LockIcon.vue";
+import { useLockScreen } from "@/composables/useLockScreen";
 
 const { t } = useI18n();
+
+const {
+  esLaPantallaDelMouse,
+  avisos,
+  reproduccion,
+  punteroAqui,
+  ordenarAlReproductor,
+  empezar,
+} = useLockScreen();
 
 const user = ref("");
 const password = ref("");
@@ -30,6 +41,8 @@ onMounted(async () => {
     // responder el desbloqueo, y hay que verlo antes de quedar encerrado.
     error.value = `lock_user: ${String(reason)}`;
   }
+
+  await empezar();
 
   await nextTick();
   field.value?.focus();
@@ -74,8 +87,13 @@ const submit = async () => {
 </script>
 
 <template>
+  <!-- `mousemove` y `mouseenter`: el compositor manda el segundo cuando la
+       superficie aparece debajo del puntero, sin que haga falta mover el mouse,
+       y el primero cubre el caso de pasar de un monitor a otro. -->
   <main
     class="relative min-h-screen w-screen flex flex-col items-center justify-center gap-10 bg-ui-surface p-6 select-none overflow-hidden"
+    @mouseenter="punteroAqui"
+    @mousemove="punteroAqui"
   >
     <!-- El fondo del escritorio, atenuado: se reconoce la sesión que hay
          detrás sin que el texto pierda contraste. -->
@@ -94,6 +112,7 @@ const submit = async () => {
       <GreeterClock />
 
     <form
+      v-if="esLaPantallaDelMouse"
       class="relative bg-ui-bg/80 px-8 pb-8 pt-14 rounded-corner shadow-xl w-full max-w-md flex flex-col gap-4"
       @submit.prevent="submit"
     >
@@ -152,6 +171,62 @@ const submit = async () => {
         {{ working ? t("lock.checking") : t("lock.unlock") }}
       </button>
       </form>
+
+      <!-- Qué está esperando la sesión, sin decir qué dice: sólo el icono de
+           cada aplicación y cuántos avisos tiene. El contenido no cruza hasta
+           una pantalla que puede estar mirando cualquiera. -->
+      <div
+        v-if="esLaPantallaDelMouse && avisos.length > 0"
+        class="flex items-center gap-3"
+        :aria-label="t('lock.notifications')"
+      >
+        <div
+          v-for="aviso in avisos"
+          :key="aviso.aplicacion"
+          class="relative flex h-10 w-10 items-center justify-center rounded-corner bg-ui-bg/70 border border-ui-border"
+          :title="t(aviso.cuantas === 1 ? 'lock.notificationsOne' : 'lock.notificationsMany').replace('{0}', String(aviso.cuantas)).replace('{1}', aviso.aplicacion)"
+        >
+          <LockIcon :name="aviso.icono" :size="22" :alt="aviso.aplicacion" />
+          <span
+            v-if="aviso.cuantas > 1"
+            class="absolute -right-1 -top-1 min-w-5 rounded-full bg-primary px-1 text-center text-[11px] font-medium text-tx-on-primary"
+          >
+            {{ aviso.cuantas }}
+          </span>
+        </div>
+      </div>
+
+      <!-- El reproductor sólo aparece si algo está sonando: en silencio, esta
+           pantalla no tiene por qué decir nada. -->
+      <div
+        v-if="esLaPantallaDelMouse && reproduccion"
+        class="flex items-center gap-3 rounded-corner bg-ui-bg/70 border border-ui-border px-4 py-2 w-full max-w-md"
+      >
+        <div class="min-w-0 flex-1">
+          <p class="truncate text-sm font-medium text-tx-main">{{ reproduccion.titulo }}</p>
+          <p v-if="reproduccion.artista" class="truncate text-xs text-tx-muted">
+            {{ reproduccion.artista }}
+          </p>
+        </div>
+        <button
+          type="button"
+          class="flex h-8 w-8 items-center justify-center rounded-corner hover:bg-ui-surface"
+          :title="t('lock.pause')"
+          :aria-label="t('lock.pause')"
+          @click="ordenarAlReproductor('playpause')"
+        >
+          <LockIcon name="media-playback-pause" :size="18" />
+        </button>
+        <button
+          type="button"
+          class="flex h-8 w-8 items-center justify-center rounded-corner hover:bg-ui-surface"
+          :title="t('lock.next')"
+          :aria-label="t('lock.next')"
+          @click="ordenarAlReproductor('next')"
+        >
+          <LockIcon name="media-skip-forward" :size="18" />
+        </button>
+      </div>
     </div>
   </main>
 </template>
