@@ -106,71 +106,10 @@ const submit = async () => {
     <div v-if="background" class="absolute inset-0 bg-ui-bg/70"></div>
 
     <!-- La separación tiene que ser mayor que lo que la foto sobresale del
-         formulario (-top-12, 48px), o el avatar se le sube encima a la fecha:
-         con gap-10 quedaba 40px y se solapaban. -->
+         formulario (-top-12, 48px), o el avatar se le sube encima a lo que tenga
+         arriba —la fecha, o los avisos—: con gap-10 quedaba 40px y se solapaban. -->
     <div class="relative flex flex-col items-center gap-20 w-full">
       <GreeterClock />
-
-    <form
-      v-if="esLaPantallaDelMouse"
-      class="relative bg-ui-bg/80 px-8 pb-8 pt-14 rounded-corner shadow-xl w-full max-w-md flex flex-col gap-4"
-      @submit.prevent="submit"
-    >
-      <!-- La foto sobresale por encima del borde: es lo que dice de quién es
-           esta sesión, sin necesidad de escribir el nombre. -->
-      <div
-        class="absolute -top-12 left-1/2 -translate-x-1/2 h-24 w-24 rounded-full border-4 border-ui-bg bg-ui-surface shadow-lg overflow-hidden flex items-center justify-center"
-      >
-        <img v-if="avatar" :src="avatar" alt="" class="h-full w-full object-cover" />
-        <span v-else class="text-3xl font-semibold text-tx-muted uppercase">
-          {{ user.slice(0, 1) }}
-        </span>
-      </div>
-
-      <h1 class="text-center text-lg font-semibold text-tx-main">
-        {{ t("lock.title") }}
-      </h1>
-
-      <div class="flex flex-col gap-1">
-        <label
-          for="lock-password"
-          class="text-xs font-semibold uppercase text-tx-main"
-        >
-          {{ t("lock.password") }}
-        </label>
-        <input
-          id="lock-password"
-          ref="field"
-          v-model="password"
-          type="password"
-          autocomplete="current-password"
-          :disabled="working"
-          class="p-2 border border-ui-border rounded-corner w-full bg-ui-bg/80 text-tx-main focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent disabled:opacity-50"
-          @keydown="updateCapsLock"
-          @keyup="updateCapsLock"
-        />
-      </div>
-
-      <p v-if="capsLock" class="text-status-warning text-sm flex items-center gap-2">
-        <span aria-hidden="true">⇧</span>{{ t("lock.capsLock") }}
-      </p>
-
-      <p
-        v-if="error"
-        role="alert"
-        class="text-status-error text-sm bg-status-error/10 p-2 rounded-corner border border-status-error/30"
-      >
-        {{ error }}
-      </p>
-
-      <button
-        type="submit"
-        :disabled="working || !password"
-        class="bg-primary text-tx-on-primary font-semibold py-2 px-4 rounded-corner hover:bg-secondary disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-sm"
-      >
-        {{ working ? t("lock.checking") : t("lock.unlock") }}
-      </button>
-      </form>
 
       <!-- Qué está esperando la sesión, sin decir qué dice: sólo el icono de
            cada aplicación y cuántos avisos tiene. El contenido no cruza hasta
@@ -195,6 +134,67 @@ const submit = async () => {
           </span>
         </div>
       </div>
+
+      <form
+        v-if="esLaPantallaDelMouse"
+        class="relative bg-ui-bg/80 px-8 pb-8 pt-14 rounded-corner shadow-xl w-full max-w-md flex flex-col gap-4"
+        @submit.prevent="submit"
+      >
+        <!-- La foto sobresale por encima del borde: es lo que dice de quién es
+             esta sesión, sin necesidad de escribir el nombre. -->
+        <div
+          class="absolute -top-12 left-1/2 -translate-x-1/2 h-24 w-24 rounded-full border-4 border-ui-bg bg-ui-surface shadow-lg overflow-hidden flex items-center justify-center"
+        >
+          <img v-if="avatar" :src="avatar" alt="" class="h-full w-full object-cover" />
+          <span v-else class="text-3xl font-semibold text-tx-muted uppercase">
+            {{ user.slice(0, 1) }}
+          </span>
+        </div>
+
+        <h1 class="text-center text-lg font-semibold text-tx-main">
+          {{ t("lock.title") }}
+        </h1>
+
+        <div class="flex flex-col gap-1">
+          <label
+            for="lock-password"
+            class="text-xs font-semibold uppercase text-tx-main"
+          >
+            {{ t("lock.password") }}
+          </label>
+          <input
+            id="lock-password"
+            ref="field"
+            v-model="password"
+            type="password"
+            autocomplete="current-password"
+            :disabled="working"
+            class="p-2 border border-ui-border rounded-corner w-full bg-ui-bg/80 text-tx-main focus:ring-2 focus:ring-primary focus:border-transparent disabled:opacity-50"
+            @keydown="updateCapsLock"
+            @keyup="updateCapsLock"
+          />
+        </div>
+
+        <p v-if="capsLock" class="text-status-warning text-sm flex items-center gap-2">
+          <span aria-hidden="true">⇧</span>{{ t("lock.capsLock") }}
+        </p>
+
+        <p
+          v-if="error"
+          role="alert"
+          class="text-status-error text-sm bg-status-error/10 p-2 rounded-corner border border-status-error/30"
+        >
+          {{ error }}
+        </p>
+
+        <button
+          type="submit"
+          :disabled="working || !password"
+          class="bg-primary text-tx-on-primary font-semibold py-2 px-4 rounded-corner hover:bg-secondary disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-sm"
+        >
+          {{ working ? t("lock.checking") : t("lock.unlock") }}
+        </button>
+      </form>
 
       <!-- El reproductor sólo aparece si algo está sonando: en silencio, esta
            pantalla no tiene por qué decir nada. -->

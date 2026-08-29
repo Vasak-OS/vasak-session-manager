@@ -8,7 +8,7 @@ mod wallpaper;
 use gtk::prelude::*;
 use session_lock::SessionLock;
 use std::cell::RefCell;
-use tauri::{AppHandle, WebviewUrl, WebviewWindowBuilder};
+use tauri::{AppHandle, Emitter, Manager, WebviewUrl, WebviewWindowBuilder};
 
 // The held lock lives on the GTK main thread, which is the only thread allowed
 // to touch it: GTK objects are not `Send`, so Tauri's managed state — which
@@ -66,6 +66,51 @@ fn unlock(app: AppHandle, password: String) -> bool {
     true
 }
 
+/// Quién muestra el formulario. Lo escuchan todas las pantallas.
+///
+/// El mismo nombre que usa `useLockScreen.ts`: es el canal por el que las páginas
+/// —una por monitor, sin estado compartido— se ponen de acuerdo.
+const EVENTO_PANTALLA_ACTIVA: &str = "lock:pantalla-activa";
+
+/// La etiqueta de la ventana de un monitor.
+fn etiqueta_de(indice: i32) -> String {
+    format!("lock-{indice}")
+}
+
+/// En qué pantalla se dibuja el formulario mientras el compositor no diga otra cosa.
+///
+/// El monitor primario, y el primero si ninguno se declara primario. Antes esto no
+/// existía y la página arrancaba sin saber: mostraba el formulario en **todas** las
+/// pantallas hasta que el mouse entrara en alguna, que con el bloqueo por
+/// inactividad —donde nadie está tocando el mouse— es para siempre.
+fn pantalla_inicial(display: &gdk::Display) -> String {
+    (0..display.n_monitors())
+        .find(|&i| display.monitor(i).is_some_and(|m| m.is_primary()))
+        .map_or_else(|| etiqueta_de(0), etiqueta_de)
+}
+
+/// Cuál es la pantalla activa, para la página que todavía no lo sabe.
+///
+/// Arranca en la del monitor primario y la corrige el foco del teclado. Se guarda
+/// —en vez de sólo emitir el evento— porque el foco puede llegar **antes** de que
+/// la página monte y se ponga a escuchar: ese aviso no lo recibe nadie, y sin
+/// dejarlo anotado la página se quedaría con la de arranque para siempre.
+///
+/// Va por estado de Tauri y no consultando GDK desde el comando: los comandos
+/// corren en el hilo del IPC, y los objetos de GDK sólo se pueden tocar desde el
+/// hilo principal.
+struct PantallaActiva(std::sync::Mutex<String>);
+
+/// Qué pantalla muestra el formulario mientras nadie reclame nada en la página.
+#[tauri::command]
+fn lock_active_screen(estado: tauri::State<'_, PantallaActiva>) -> String {
+    estado
+        .0
+        .lock()
+        .map(|cual| cual.clone())
+        .unwrap_or_else(|envenenado| envenenado.into_inner().clone())
+}
+
 /// Puts one surface on every monitor.
 ///
 /// Same reparenting as the panel: Tauri only knows how to build xdg-toplevels,
@@ -84,7 +129,7 @@ fn cover_every_monitor(app: &AppHandle, lock: &SessionLock) -> Result<(), String
             .monitor(index)
             .ok_or_else(|| format!("no se pudo leer el monitor {index}"))?;
 
-        let label = format!("lock-{index}");
+        let label = etiqueta_de(index);
         let webview = WebviewWindowBuilder::new(app, &label, WebviewUrl::App("index.html#/lock".into()))
             .title("Vasak lock")
             .decorations(false)
@@ -98,6 +143,27 @@ fn cover_every_monitor(app: &AppHandle, lock: &SessionLock) -> Result<(), String
 
         let surface = gtk::Window::new(gtk::WindowType::Toplevel);
         surface.set_decorated(false);
+
+        // Quién tiene el teclado manda sobre quién dibuja el formulario.
+        //
+        // Con ext-session-lock el compositor le da el foco a **una** superficie, y
+        // no tiene por qué ser la del monitor primario. Sin esto, la persona
+        // escribía en una pantalla que no mostraba nada mientras el formulario
+        // estaba en otra. El evento es el mismo que se mandan las páginas entre
+        // ellas, así que la que lo recibe muestra y las demás esconden.
+        let avisar = app.clone();
+        let cual = label.clone();
+        surface.connect_is_active_notify(move |ventana| {
+            if !ventana.is_active() {
+                return;
+            }
+            if let Some(estado) = avisar.try_state::<PantallaActiva>() {
+                if let Ok(mut actual) = estado.0.lock() {
+                    *actual = cual.clone();
+                }
+            }
+            let _ = avisar.emit(EVENTO_PANTALLA_ACTIVA, &cual);
+        });
 
         reparent(&toplevel, &surface)?;
         lock.attach(&surface, &monitor);
@@ -197,6 +263,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             lock_user,
             lock_avatar,
+            lock_active_screen,
             unlock,
             contexto::lock_notifications,
             contexto::lock_media,
@@ -204,6 +271,13 @@ pub fn run() {
             wallpaper::lock_background
         ])
         .setup(|app| {
+            // Antes de crear ninguna ventana: la página la pide apenas monta, y
+            // resolverlo acá es lo que la deja mostrar el formulario en una sola
+            // pantalla desde el primer cuadro.
+            app.manage(PantallaActiva(std::sync::Mutex::new(
+                gdk::Display::default().map_or_else(|| etiqueta_de(0), |d| pantalla_inicial(&d)),
+            )));
+
             if dry_run() {
                 eprintln!("[lock] --dry-run: se dibuja en una ventana normal, sin bloquear");
                 WebviewWindowBuilder::new(
