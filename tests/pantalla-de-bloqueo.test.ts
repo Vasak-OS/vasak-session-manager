@@ -12,9 +12,9 @@ import { avisoVigente, CADUCIDAD_MS, debeMostrar } from '../src/composables/useL
  */
 describe('qué pantalla muestra el formulario', () => {
 	test('sólo la que tiene el puntero', () => {
-		expect(debeMostrar('lock-0', 'lock-0')).toBe(true);
-		expect(debeMostrar('lock-1', 'lock-0')).toBe(false);
-		expect(debeMostrar('lock-2', 'lock-0')).toBe(false);
+		expect(debeMostrar('lock-0', 'lock-0', null)).toBe(true);
+		expect(debeMostrar('lock-1', 'lock-0', null)).toBe(false);
+		expect(debeMostrar('lock-2', 'lock-0', null)).toBe(false);
 	});
 
 	test('mientras nadie reclamó nada, la que dijo Rust y sólo esa', () => {
@@ -30,22 +30,33 @@ describe('qué pantalla muestra el formulario', () => {
 		expect(debeMostrar('lock-1', null, 'lock-1')).toBe(true);
 	});
 
+	test('mientras no se sabe cuál es, no la muestra ninguna', () => {
+		// El parpadeo: entre que la página monta y que Rust contesta, mostrarla en
+		// todas es exactamente el síntoma que esto vino a arreglar. Y la ventana no
+		// es corta: la vista espera también a que cargue el fondo de escritorio.
+		const pantallas = ['lock-0', 'lock-1'];
+		expect(pantallas.filter((p) => debeMostrar(p, null, undefined))).toEqual([]);
+	});
+
 	test('quien reclama el teclado le gana a la de arranque', () => {
 		// Con ext-session-lock el compositor le da el foco a una superficie, y no
 		// tiene por qué ser la del monitor primario. Escribir en una pantalla que no
 		// muestra el formulario es no poder entrar a la sesión.
 		expect(debeMostrar('lock-1', 'lock-1', 'lock-0')).toBe(true);
 		expect(debeMostrar('lock-0', 'lock-1', 'lock-0')).toBe(false);
+		// Y le gana también a «todavía no se sabe»: por eso el oyente de teclado se
+		// registra antes de preguntar.
+		expect(debeMostrar('lock-1', 'lock-1', undefined)).toBe(true);
+		expect(debeMostrar('lock-0', 'lock-1', undefined)).toBe(false);
 	});
 
 	test('si no se pudo resolver ninguna, se muestran todas', () => {
-		// La salida de emergencia, que sigue estando: si Rust no contestó y nadie
-		// reclamó, esconder el formulario en todas dejaría la sesión bloqueada sin
-		// forma de volver a entrar. Es preferible mostrarlo de más que de menos.
+		// La salida de emergencia, que sigue estando: si la consulta falló o tardó
+		// más de ESPERA_PANTALLA_MS y nadie reclamó, esconder el formulario en todas
+		// dejaría la sesión bloqueada sin forma de volver a entrar. `null` es «no se
+		// pudo saber», distinto de `undefined`, que es «todavía no se sabe».
 		expect(debeMostrar('lock-0', null, null)).toBe(true);
 		expect(debeMostrar('lock-1', null, null)).toBe(true);
-		// Y sin el tercer argumento —como la llamaba el código viejo— también.
-		expect(debeMostrar('lock-0', null)).toBe(true);
 	});
 
 	test('nunca hay más de una mostrando, tampoco en el arranque', () => {
@@ -75,7 +86,7 @@ describe('qué pantalla muestra el formulario', () => {
 		// tenía el puntero ya no existe, no vuelve a avisar, y las demás siguen
 		// escondiendo el formulario para siempre.
 		const pantallas = ['lock-0', 'lock-1'];
-		expect(pantallas.filter((pantalla) => debeMostrar(pantalla, 'lock-9'))).toEqual([]);
+		expect(pantallas.filter((p) => debeMostrar(p, 'lock-9', null))).toEqual([]);
 
 		// Por eso el aviso caduca.
 		expect(avisoVigente(0)).toBe(true);
@@ -88,6 +99,6 @@ describe('qué pantalla muestra el formulario', () => {
 		const trasCaducar = null;
 		expect(pantallas.filter((p) => debeMostrar(p, trasCaducar, 'lock-0'))).toEqual(['lock-0']);
 		// Y sin ninguna de las dos, todas.
-		expect(pantallas.filter((p) => debeMostrar(p, trasCaducar))).toEqual(pantallas);
+		expect(pantallas.filter((p) => debeMostrar(p, trasCaducar, null))).toEqual(pantallas);
 	});
 });

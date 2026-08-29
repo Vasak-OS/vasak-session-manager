@@ -200,6 +200,25 @@ fn sufijo_de_atajo(clave: &str) -> Option<&str> {
         .find_map(|prefijo| clave.strip_prefix(prefijo))
 }
 
+/// El sufijo de una clave que forma par en el `[command]`, y sólo ahí.
+///
+/// Fuera de esa sección un `binding_algo` no tiene ningún `command_algo` que le
+/// corresponda: `[vswitch] binding_down` es el nombre de la opción, no una etiqueta,
+/// y emparejarla saltearía una opción que no tiene nada que ver.
+fn sufijo_del_par(a: &Asignacion) -> Option<&str> {
+    (a.seccion == SECCION_DE_ATAJOS)
+        .then(|| sufijo_de_atajo(&a.clave))
+        .flatten()
+}
+
+/// La sección de wayfire donde el nombre de un atajo es una etiqueta libre.
+///
+/// Es la única: el plugin `command` define pares `binding_x` / `command_x` donde `x`
+/// lo elige quien escribe el archivo. En todas las demás, el nombre de la clave es
+/// la opción —`[vswitch] binding_down`, `[zoom] modifier`— y significa siempre lo
+/// mismo, así que compararlas por nombre, que es lo que ya se hacía, alcanza.
+pub const SECCION_DE_ATAJOS: &str = "command";
+
 /// Los atajos que liga una asignación, **si es de las que llevan etiqueta libre**.
 ///
 /// Sólo participan las claves `binding_*` del `[command]` de wayfire, que son las
@@ -215,7 +234,7 @@ fn sufijo_de_atajo(clave: &str) -> Option<&str> {
 ///
 /// La sección va en el par porque las etiquetas son del `[command]` que las define.
 fn atajos_de(a: &Asignacion) -> Vec<(String, String)> {
-    if sufijo_de_atajo(&a.clave).is_none() {
+    if a.seccion != SECCION_DE_ATAJOS || sufijo_de_atajo(&a.clave).is_none() {
         return Vec::new();
     }
     combos_de(&a.valor)
@@ -262,7 +281,7 @@ pub struct Limpieza {
 
 /// El comando que dispara un atajo: el `command_x` de su `binding_x`.
 fn comando_de<'a>(todas: &'a [Asignacion], a: &Asignacion) -> Option<&'a str> {
-    let sufijo = sufijo_de_atajo(&a.clave)?;
+    let sufijo = sufijo_del_par(a)?;
     let pareja = format!("command_{sufijo}");
     todas
         .iter()
@@ -329,7 +348,7 @@ pub fn quitar_choques(
     let mut sobran: HashMap<(String, String), Motivo> = HashMap::new();
     let descartar = |a: &Asignacion, motivo: Motivo, sobran: &mut HashMap<_, _>| {
         sobran.insert((a.seccion.clone(), a.clave.clone()), motivo);
-        if let Some(sufijo) = sufijo_de_atajo(&a.clave) {
+        if let Some(sufijo) = sufijo_del_par(a) {
             let pareja = format!("command_{sufijo}");
             if del_usuario
                 .iter()
@@ -483,7 +502,7 @@ pub fn fusionar(
     let pares_saltados: HashSet<(String, String)> = del_paquete
         .iter()
         .filter_map(|a| {
-            let sufijo = sufijo_de_atajo(&a.clave)?;
+            let sufijo = sufijo_del_par(a)?;
             let choca = atajos_de(a).iter().any(|c| ligados.contains(c));
             (choca && !tiene(usuario, &a.seccion, &a.clave)).then(|| {
                 (a.seccion.clone(), sufijo.to_string())
@@ -501,9 +520,11 @@ pub fn fusionar(
         if atajos.iter().any(|c| ligados.contains(c)) {
             continue;
         }
-        if let Some(sufijo) = a.clave.strip_prefix("command_") {
-            if pares_saltados.contains(&(a.seccion.clone(), sufijo.to_string())) {
-                continue;
+        if a.seccion == SECCION_DE_ATAJOS {
+            if let Some(sufijo) = a.clave.strip_prefix("command_") {
+                if pares_saltados.contains(&(a.seccion.clone(), sufijo.to_string())) {
+                    continue;
+                }
             }
         }
 
@@ -815,6 +836,26 @@ mod tests {
         let (r, a) = fusionar(usuario, paquete, &nada_ofrecido);
         assert!(r.contains("command_files = vasak-file-manager"), "{r}");
         assert_eq!(a.claves, vec![("command".to_string(), "command_files".to_string())]);
+    }
+
+    /// Los `binding_*` de otras secciones son nombres de opción, no etiquetas.
+    ///
+    /// `[vswitch] binding_down` significa siempre lo mismo, así que compararlo por
+    /// nombre alcanza; tratarlo como etiqueta libre haría, además, que se salteara un
+    /// `command_down` de esa sección que no tiene nada que ver con él.
+    #[test]
+    fn los_atajos_de_nombre_fijo_de_otra_seccion_no_entran_en_la_regla() {
+        let usuario = "[vswitch]\nbinding_down = <ctrl> <super> KEY_DOWN\n";
+        let paquete = "[vswitch]\n\
+                       binding_down = <ctrl> <super> KEY_DOWN\n\
+                       binding_otro = <ctrl> <super> KEY_DOWN\n\
+                       command_otro = algo\n";
+        let (r, a) = fusionar(usuario, paquete, &nada_ofrecido);
+
+        // Entran las dos: fuera de `[command]` la regla no opina.
+        assert!(r.contains("binding_otro"), "{r}");
+        assert!(r.contains("command_otro = algo"), "{r}");
+        assert_eq!(a.claves.len(), 2);
     }
 
     /// La regla mira sólo las claves de etiqueta libre, y tiene que ser así.
