@@ -41,25 +41,41 @@ fn main() {
             eprintln!("[config-migrate] {} : {motivo}", r.archivo);
             continue;
         }
-        if r.agregadas.is_empty() {
+        if r.agregadas.is_empty() && r.quitadas.is_empty() {
             continue;
         }
-        cambios += r.agregadas.len();
-        let que = if prueba { "agregaría" } else { "agregado" };
-        for (seccion, clave) in &r.agregadas {
-            let donde = if seccion == migracion::SECCION_DE_LINEA {
+        cambios += r.agregadas.len() + r.quitadas.len();
+
+        let donde = |seccion: &String, clave: &String| {
+            if seccion == migracion::SECCION_DE_LINEA {
                 // Una línea que carga el archivo del paquete, no una clave.
                 format!("la línea que carga {clave}")
             } else if seccion.is_empty() {
                 clave.clone()
             } else {
                 format!("{seccion}.{clave}")
-            };
-            eprintln!("[config-migrate] {que} en {}: {donde}", r.archivo);
+            }
+        };
+
+        // Primero lo que se retira, que es lo que más conviene ver: es la única
+        // parte de esto que saca una línea del archivo de alguien.
+        let saco = if prueba { "quitaría" } else { "quitado" };
+        for (seccion, clave) in &r.quitadas {
+            eprintln!(
+                "[config-migrate] {saco} de {}: {} \
+                 (lo había puesto la migración y choca con un atajo anterior)",
+                r.archivo,
+                donde(seccion, clave)
+            );
+        }
+
+        let que = if prueba { "agregaría" } else { "agregado" };
+        for (seccion, clave) in &r.agregadas {
+            eprintln!("[config-migrate] {que} en {}: {}", r.archivo, donde(seccion, clave));
         }
     }
 
     if cambios == 0 {
-        eprintln!("[config-migrate] no hay opciones nuevas para esta cuenta");
+        eprintln!("[config-migrate] no hay nada que cambiar en esta cuenta");
     }
 }

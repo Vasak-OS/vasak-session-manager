@@ -78,6 +78,9 @@ pub const SECCION_DE_LINEA: &str = "@linea";
 pub struct Resultado {
     pub archivo: String,
     pub agregadas: Vec<(String, String)>,
+    /// Los atajos que había puesto la migración y que chocaban con uno anterior.
+    /// Nunca líneas de la persona: ver `ini::quitar_choques`.
+    pub quitadas: Vec<(String, String)>,
     pub motivo: Option<String>,
 }
 
@@ -86,13 +89,33 @@ impl Resultado {
         Self {
             archivo: archivo.to_string(),
             agregadas: Vec::new(),
+            quitadas: Vec::new(),
             motivo: Some(motivo.to_string()),
         }
     }
 }
 
-/// Fusiona un archivo y devuelve el texto nuevo, o `None` si no hay nada que
-/// cambiar.
+/// Lo que una pasada le haría a un archivo.
+#[derive(Debug, Default, PartialEq, Eq)]
+pub struct Cambio {
+    /// El texto nuevo, o `None` si no hay nada que escribir.
+    pub texto: Option<String>,
+    pub agregadas: Vec<(String, String)>,
+    pub quitadas: Vec<(String, String)>,
+}
+
+/// Limpia y fusiona un archivo; devuelve el texto nuevo, o `None` si no hay nada
+/// que cambiar.
+///
+/// Dos pasos, en este orden:
+///
+/// 1. **Se retiran los atajos que puso la migración y que chocan** con uno que ya
+///    estaba. Va primero porque es reparar lo que ya pasó, y porque el registro de
+///    lo ofrecido es lo que dice cuáles son nuestros: ver `ini::quitar_choques`.
+/// 2. **Se agrega lo que falta**, que desde ahora ya no liga un atajo dos veces.
+///
+/// Retirar una clave no la desanota del registro: se ofreció una vez, resultó que
+/// chocaba, y no tiene por qué volver en el próximo arranque.
 ///
 /// Pura: no toca el disco. Lo que la hace probable, y lo que permite el modo de
 /// prueba que no escribe nada.
@@ -101,15 +124,20 @@ pub fn fusionar_texto(
     usuario: &str,
     paquete: &str,
     ya: &HashSet<estado::Clave>,
-) -> (Option<String>, Vec<(String, String)>) {
+) -> Cambio {
     let ofrecida = |seccion: &str, clave: &str| {
         ya.contains(&(relativo.to_string(), seccion.to_string(), clave.to_string()))
     };
-    let (texto, agregado) = ini::fusionar(usuario, paquete, &ofrecida);
-    if agregado.claves.is_empty() {
-        return (None, Vec::new());
+    let (limpio, quitadas) = ini::quitar_choques(usuario, paquete, &ofrecida);
+    let (texto, agregado) = ini::fusionar(&limpio, paquete, &ofrecida);
+    if agregado.claves.is_empty() && quitadas.is_empty() {
+        return Cambio::default();
     }
-    (Some(texto), agregado.claves)
+    Cambio {
+        texto: Some(texto),
+        agregadas: agregado.claves,
+        quitadas,
+    }
 }
 
 /// Recorre los archivos y aplica lo que falte.
@@ -164,11 +192,13 @@ pub fn aplicar(
             continue;
         };
 
-        let (nuevo, agregadas) = fusionar_texto(relativo, &usuario, &paquete, &ya);
-        let Some(nuevo) = nuevo else {
+        let cambio = fusionar_texto(relativo, &usuario, &paquete, &ya);
+        let Cambio { texto, agregadas, quitadas } = cambio;
+        let Some(nuevo) = texto else {
             resultados.push(Resultado {
                 archivo: relativo.to_string(),
                 agregadas: Vec::new(),
+                quitadas: Vec::new(),
                 motivo: None,
             });
             continue;
@@ -188,6 +218,7 @@ pub fn aplicar(
         resultados.push(Resultado {
             archivo: relativo.to_string(),
             agregadas,
+            quitadas,
             motivo: None,
         });
     }
@@ -215,6 +246,7 @@ pub fn aplicar(
             resultados.push(Resultado {
                 archivo: insercion.archivo.to_string(),
                 agregadas: Vec::new(),
+                quitadas: Vec::new(),
                 motivo: None,
             });
             continue;
@@ -235,6 +267,7 @@ pub fn aplicar(
         resultados.push(Resultado {
             archivo: insercion.archivo.to_string(),
             agregadas: vec![(SECCION_DE_LINEA.to_string(), insercion.marca.to_string())],
+            quitadas: Vec::new(),
             motivo: None,
         });
     }
@@ -321,6 +354,60 @@ mod tests {
         // Y una segunda pasada no vuelve a agregar nada.
         let r2 = aplicar(&hogar, &skel, &registro, true);
         assert!(r2.iter().all(|x| x.agregadas.is_empty()), "{r2:?}");
+        let _ = std::fs::remove_dir_all(hogar.parent().unwrap());
+    }
+
+    /// El arreglo de las tres terminales, de punta a punta.
+    ///
+    /// Es el caso real: el paquete traía `KEY_T <super>` con dos etiquetas viejas,
+    /// las renombró a `binding_terminal`, y la fusión por nombre le agregó la nueva
+    /// encima a quien tenía las viejas.
+    #[test]
+    fn el_atajo_que_la_migracion_duplico_se_retira_y_no_vuelve() {
+        let (hogar, skel, registro) = escenario("choques");
+        let viejo = "[command]\n\
+                     binding_custom_0 = KEY_T <super>\n\
+                     command_custom_0 = vasak-terminal\n";
+        let nuevo = "[command]\n\
+                     binding_terminal = <super> KEY_T\n\
+                     command_terminal = vasak-terminal\n";
+        poner(&hogar, ".config/wayfire.ini", viejo);
+        poner(&skel, ".config/wayfire.ini", nuevo);
+
+        // Primera pasada: con la regla nueva ya no lo agrega.
+        aplicar(&hogar, &skel, &registro, true);
+        let despues = std::fs::read_to_string(hogar.join(".config/wayfire.ini")).unwrap();
+        assert!(!despues.contains("binding_terminal"), "{despues}");
+
+        // Ahora el archivo de alguien que ya pasó por la versión rota: tiene las dos
+        // líneas y la nueva está anotada como puesta por nosotros.
+        poner(
+            &hogar,
+            ".config/wayfire.ini",
+            &format!("{viejo}{}", nuevo.trim_start_matches("[command]\n")),
+        );
+        std::fs::write(
+            &registro,
+            ".config/wayfire.ini\tcommand\tbinding_terminal\n\
+             .config/wayfire.ini\tcommand\tcommand_terminal\n",
+        )
+        .unwrap();
+
+        let r = aplicar(&hogar, &skel, &registro, true);
+        let wayfire = r.iter().find(|x| x.archivo == ".config/wayfire.ini").unwrap();
+        assert_eq!(wayfire.quitadas.len(), 2, "{wayfire:?}");
+
+        let despues = std::fs::read_to_string(hogar.join(".config/wayfire.ini")).unwrap();
+        assert!(!despues.contains("binding_terminal"), "{despues}");
+        assert!(!despues.contains("command_terminal"), "{despues}");
+        // Y lo de la persona sigue ahí: acá se retira lo nuestro, no lo suyo.
+        assert!(despues.contains("binding_custom_0 = KEY_T <super>"), "{despues}");
+
+        // La clave sigue anotada, así que no vuelve en el próximo arranque.
+        let anotado = std::fs::read_to_string(&registro).unwrap();
+        assert!(anotado.contains("binding_terminal"), "{anotado}");
+        let otra = aplicar(&hogar, &skel, &registro, true);
+        assert!(otra.iter().all(|x| x.agregadas.is_empty() && x.quitadas.is_empty()), "{otra:?}");
         let _ = std::fs::remove_dir_all(hogar.parent().unwrap());
     }
 
