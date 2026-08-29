@@ -14,6 +14,8 @@
 //! Así que se trabaja **por líneas**: el archivo del usuario se conserva byte por
 //! byte y sólo se **insertan** las claves que le faltan, en su sección.
 
+use std::collections::HashSet;
+
 /// Una asignación de un INI, con la sección a la que pertenece.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Asignacion {
@@ -125,6 +127,79 @@ fn fin_de_seccion(lineas: &[&str], seccion: &str) -> Option<usize> {
     ultima_con_contenido.map(|i| i + 1)
 }
 
+/// Los atajos que expresa un valor, normalizados. Vacío si el valor no es un atajo.
+///
+/// Wayfire escribe un atajo como una lista de modificadores y una tecla, y acepta
+/// las dos formas: `<super> KEY_T` y `KEY_T <super>` son el mismo atajo escrito
+/// distinto, y las dos conviven en los archivos que el paquete fue trayendo. Por eso
+/// se normaliza —modificadores en minúscula y ordenados, la tecla después— antes de
+/// comparar. Los modificadores se pueden pegar (`<alt><ctrl> KEY_T`).
+///
+/// Varios atajos para la misma acción van separados por `|`.
+///
+/// Un valor que no es un atajo —`plugins = expo cube`, un comando, un número—
+/// devuelve la lista vacía: sólo se comparan atajos con atajos.
+pub fn combos_de(valor: &str) -> Vec<String> {
+    valor.split('|').filter_map(combo_de).collect()
+}
+
+fn combo_de(uno: &str) -> Option<String> {
+    let mut modificadores = Vec::new();
+    let mut teclas = Vec::new();
+
+    for token in tokens_de(uno)? {
+        if token.starts_with('<') {
+            modificadores.push(token);
+        } else if token.starts_with("KEY_") || token.starts_with("BTN_") {
+            teclas.push(token);
+        } else {
+            // Cualquier otra cosa y el valor no es un atajo: un comando, un
+            // nombre de plugin, un número.
+            return None;
+        }
+    }
+
+    if modificadores.is_empty() && teclas.is_empty() {
+        return None;
+    }
+    modificadores.sort();
+    modificadores.dedup();
+    Some(format!("{}{}", modificadores.concat(), teclas.concat()))
+}
+
+/// Parte un atajo en sus piezas. `None` si hay un `<` sin cerrar.
+fn tokens_de(texto: &str) -> Option<Vec<String>> {
+    let mut salida = Vec::new();
+    let mut resto = texto.trim();
+
+    while !resto.is_empty() {
+        if let Some(desde) = resto.strip_prefix('<') {
+            let (modificador, sigue) = desde.split_once('>')?;
+            salida.push(format!("<{}>", modificador.trim().to_lowercase()));
+            resto = sigue.trim_start();
+        } else {
+            let fin = resto
+                .find(|c: char| c.is_whitespace() || c == '<')
+                .unwrap_or(resto.len());
+            let (pieza, sigue) = resto.split_at(fin);
+            salida.push(pieza.to_string());
+            resto = sigue.trim_start();
+        }
+    }
+
+    Some(salida)
+}
+
+/// El sufijo de una clave de atajo del `[command]` de wayfire, si lo es.
+///
+/// `binding_terminal` es la mitad de un par: la otra es `command_terminal`, y una
+/// sin la otra no hace nada.
+fn sufijo_de_atajo(clave: &str) -> Option<&str> {
+    ["repeatable_binding_", "always_binding_", "binding_"]
+        .into_iter()
+        .find_map(|prefijo| clave.strip_prefix(prefijo))
+}
+
 /// Agrega a `usuario` las claves de `paquete` que le falten y que no estén en
 /// `ya_ofrecidas`.
 ///
@@ -135,6 +210,13 @@ fn fin_de_seccion(lineas: &[&str], seccion: &str) -> Option<usize> {
 /// `ya_ofrecidas` es lo que hace que una clave **borrada a propósito** no vuelva en
 /// el próximo inicio de sesión. Sin eso, «actualizar sin pisar» sería «insistir
 /// para siempre».
+///
+/// Y tampoco se agrega un **atajo que ya está ligado**, aunque la clave se llame
+/// distinto. En el `[command]` de wayfire el nombre de la clave es una etiqueta
+/// arbitraria y el atajo vive en el valor, así que comparar por nombre no alcanza:
+/// el paquete renombró `binding_custom_0` a `binding_terminal` sin cambiarle el
+/// `<super> KEY_T`, y en las cuentas que tenían el nombre viejo la fusión agregaba
+/// el nuevo al lado. La tecla no ganaba una opción: abría tres terminales.
 pub fn fusionar(
     usuario: &str,
     paquete: &str,
@@ -144,10 +226,42 @@ pub fn fusionar(
     let mut lineas: Vec<String> = usuario.lines().map(|l| l.to_string()).collect();
     let mut agregado = Agregado::default();
 
-    for a in asignaciones_de(paquete) {
+    // Los atajos que el archivo del usuario ya tiene ligados, normalizados.
+    let mut ligados: HashSet<String> = asignaciones_de(usuario)
+        .iter()
+        .flat_map(|a| combos_de(&a.valor))
+        .collect();
+
+    // Los `binding_*` que se van a saltear por chocar. Se calcula antes del bucle
+    // para no depender de que el `binding_` venga escrito arriba de su `command_`:
+    // agregar la mitad que ejecuta sin la mitad que la dispara deja una línea que
+    // no hace nada.
+    let del_paquete = asignaciones_de(paquete);
+    let pares_saltados: HashSet<(String, String)> = del_paquete
+        .iter()
+        .filter_map(|a| {
+            let sufijo = sufijo_de_atajo(&a.clave)?;
+            let choca = combos_de(&a.valor).iter().any(|c| ligados.contains(c));
+            (choca && !tiene(usuario, &a.seccion, &a.clave)).then(|| {
+                (a.seccion.clone(), sufijo.to_string())
+            })
+        })
+        .collect();
+
+    for a in del_paquete {
         let actual = lineas.join("\n");
         if tiene(&actual, &a.seccion, &a.clave) || ya_ofrecidas(&a.seccion, &a.clave) {
             continue;
+        }
+
+        let combos = combos_de(&a.valor);
+        if combos.iter().any(|c| ligados.contains(c)) {
+            continue;
+        }
+        if let Some(sufijo) = a.clave.strip_prefix("command_") {
+            if pares_saltados.contains(&(a.seccion.clone(), sufijo.to_string())) {
+                continue;
+            }
         }
 
         let nueva = format!("{} = {}", a.clave, a.valor);
@@ -166,6 +280,7 @@ pub fn fusionar(
                 lineas.push(nueva);
             }
         }
+        ligados.extend(combos);
         agregado.claves.push((a.seccion.clone(), a.clave.clone()));
     }
 
@@ -369,6 +484,119 @@ mod tests {
         let leidas = asignaciones_de(&r);
         let global = leidas.iter().find(|x| x.clave == "global").expect("está");
         assert_eq!(global.seccion, "");
+    }
+
+    /// El caso que abría tres terminales con una sola tecla.
+    ///
+    /// El paquete renombró las etiquetas del `[command]`: `binding_custom_0` y
+    /// `binding_custom_4` —las dos con el mismo `KEY_T <super>`— pasaron a ser
+    /// `binding_terminal = <super> KEY_T`. En una cuenta con los nombres viejos,
+    /// fusionar por nombre agregaba el nombre nuevo al lado de los dos que ya
+    /// estaban, y wayfire dispara todos los que coincidan.
+    #[test]
+    fn un_atajo_que_ya_esta_ligado_no_se_agrega_con_otro_nombre() {
+        let usuario = "[command]\n\
+                       binding_custom_0 = KEY_T <super>\n\
+                       command_custom_0 = vasak-terminal\n\
+                       binding_custom_4 = KEY_T <super>\n\
+                       command_custom_4 = vasak-terminal\n";
+        let paquete = "[command]\n\
+                       binding_terminal = <super> KEY_T\n\
+                       command_terminal = vasak-terminal\n";
+        let (r, a) = fusionar(usuario, paquete, &nada_ofrecido);
+
+        assert!(!r.contains("binding_terminal"), "{r}");
+        // Y su mitad tampoco: un `command_` sin `binding_` es una línea muerta.
+        assert!(!r.contains("command_terminal"), "{r}");
+        assert!(a.claves.is_empty());
+        // Lo que la persona tenía sigue intacto, incluso lo que ya estaba repetido:
+        // acá no se borra nada, sólo se deja de agregar.
+        assert!(r.contains("binding_custom_0"));
+        assert!(r.contains("binding_custom_4"));
+    }
+
+    #[test]
+    fn el_mismo_atajo_escrito_al_reves_es_el_mismo_atajo() {
+        // `KEY_T <super>` y `<super> KEY_T` conviven en los archivos que el paquete
+        // fue trayendo. Comparando el texto tal cual, el segundo entraba encima del
+        // primero.
+        assert_eq!(combos_de("KEY_T <super>"), combos_de("<super> KEY_T"));
+        assert_eq!(combos_de("<alt> <ctrl> KEY_T"), combos_de("<ctrl> <alt> KEY_T"));
+        // Pegados también es válido en wayfire.
+        assert_eq!(combos_de("<alt><ctrl> KEY_T"), combos_de("<ctrl> <alt> KEY_T"));
+        // Y las mayúsculas del modificador no hacen a otro atajo.
+        assert_eq!(combos_de("<Super> KEY_L"), combos_de("<super> KEY_L"));
+    }
+
+    #[test]
+    fn lo_que_no_es_un_atajo_no_se_compara_como_atajo() {
+        // Si un comando o una lista de plugins contara como atajo, dos claves sin
+        // nada que ver dejarían de agregarse por «chocar».
+        assert!(combos_de("vasak-terminal").is_empty());
+        assert!(combos_de("dbus-send --session --dest=org.vasak.os.Desktop").is_empty());
+        assert!(combos_de("expo cube animate").is_empty());
+        assert!(combos_de("1920x1080@75").is_empty());
+        assert!(combos_de("").is_empty());
+        assert!(combos_de("true").is_empty());
+        assert!(combos_de("sh -c 'x=1'").is_empty());
+        // Un `<` sin cerrar no es un atajo a medio escribir: no es un atajo.
+        assert!(combos_de("<super KEY_T").is_empty());
+
+        // Y lo que sí lo es, lo es.
+        assert_eq!(combos_de("KEY_MUTE"), vec!["KEY_MUTE".to_string()]);
+        assert_eq!(combos_de("<super>"), vec!["<super>".to_string()]);
+        assert_eq!(combos_de("BTN_EXTRA"), vec!["BTN_EXTRA".to_string()]);
+    }
+
+    #[test]
+    fn un_atajo_libre_si_se_agrega() {
+        // La otra mitad de la regla: no agregar lo que choca no puede convertirse
+        // en no agregar nada. `KEY_F12` no estaba ligado, así que entra.
+        let usuario = "[command]\nbinding_terminal = <super> KEY_T\ncommand_terminal = vasak-terminal\n";
+        let paquete = "[command]\n\
+                       binding_terminal = <super> KEY_T\n\
+                       binding_terminal_overlay = KEY_F12\n\
+                       command_terminal_overlay = vasak-terminal --overlay\n";
+        let (r, a) = fusionar(usuario, paquete, &nada_ofrecido);
+        assert!(r.contains("binding_terminal_overlay = KEY_F12"), "{r}");
+        assert!(r.contains("command_terminal_overlay = vasak-terminal --overlay"), "{r}");
+        assert_eq!(a.claves.len(), 2);
+    }
+
+    #[test]
+    fn el_command_entra_cuando_el_binding_ya_estaba_por_nombre() {
+        // Distinto de chocar: acá la persona tiene el atajo con el mismo nombre y
+        // le falta la mitad que ejecuta. Sin el `command_`, la tecla no hace nada.
+        let usuario = "[command]\nbinding_files = <super> KEY_E\n";
+        let paquete = "[command]\nbinding_files = <super> KEY_E\ncommand_files = vasak-file-manager\n";
+        let (r, a) = fusionar(usuario, paquete, &nada_ofrecido);
+        assert!(r.contains("command_files = vasak-file-manager"), "{r}");
+        assert_eq!(a.claves, vec![("command".to_string(), "command_files".to_string())]);
+    }
+
+    #[test]
+    fn el_choque_tambien_cuenta_entre_secciones() {
+        // Un atajo es global: que `<super> KEY_E` esté en `[expo]` y el paquete lo
+        // traiga en `[command]` no lo hace otro atajo, lo hace un conflicto.
+        let usuario = "[expo]\ntoggle = <super> KEY_E\n";
+        let paquete = "[command]\nbinding_files = <super> KEY_E\ncommand_files = vasak-file-manager\n";
+        let (r, a) = fusionar(usuario, paquete, &nada_ofrecido);
+        assert!(!r.contains("binding_files"), "{r}");
+        assert!(a.claves.is_empty());
+    }
+
+    #[test]
+    fn dos_atajos_distintos_del_paquete_entran_los_dos() {
+        // La regla mira lo que ya está ligado y lo que se va agregando, así que no
+        // puede dejar entrar dos veces el mismo ni frenar dos distintos.
+        let usuario = "[command]\n";
+        let paquete = "[command]\n\
+                       binding_terminal = <super> KEY_T\n\
+                       binding_terminal_alt = <alt> <ctrl> KEY_T\n";
+        let (r, a) = fusionar(usuario, paquete, &nada_ofrecido);
+        assert!(r.contains("binding_terminal = <super> KEY_T"), "{r}");
+        assert!(r.contains("binding_terminal_alt = <alt> <ctrl> KEY_T"), "{r}");
+        assert_eq!(a.claves.len(), 2);
     }
 
     #[test]
