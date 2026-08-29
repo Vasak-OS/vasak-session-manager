@@ -41,25 +41,60 @@ fn main() {
             eprintln!("[config-migrate] {} : {motivo}", r.archivo);
             continue;
         }
-        if r.agregadas.is_empty() {
+        // Lo que no se puede resolver solo. Va aunque no haya nada que cambiar: es
+        // información sobre el archivo, no un cambio.
+        for c in &r.conflictos {
+            eprintln!(
+                "[config-migrate] {}: «{}» está ligado a comandos distintos por {} \
+                 — no se toca, decidilo vos",
+                r.archivo,
+                c.combo,
+                c.claves.join(", ")
+            );
+        }
+
+        if r.agregadas.is_empty() && r.quitadas.is_empty() {
             continue;
         }
-        cambios += r.agregadas.len();
-        let que = if prueba { "agregaría" } else { "agregado" };
-        for (seccion, clave) in &r.agregadas {
-            let donde = if seccion == migracion::SECCION_DE_LINEA {
+        cambios += r.agregadas.len() + r.quitadas.len();
+
+        let donde = |seccion: &String, clave: &String| {
+            if seccion == migracion::SECCION_DE_LINEA {
                 // Una línea que carga el archivo del paquete, no una clave.
                 format!("la línea que carga {clave}")
             } else if seccion.is_empty() {
                 clave.clone()
             } else {
                 format!("{seccion}.{clave}")
+            }
+        };
+
+        // Primero lo que se retira, que es lo que más conviene ver: es la única
+        // parte de esto que saca una línea del archivo de alguien.
+        let saco = if prueba { "quitaría" } else { "quitado" };
+        for q in &r.quitadas {
+            let porque = match q.motivo {
+                migracion::ini::Motivo::LaPusimosYChoca => {
+                    "lo había puesto la actualización y choca con un atajo anterior"
+                }
+                migracion::ini::Motivo::RepiteAOtra => {
+                    "repite un atajo anterior que hace exactamente lo mismo"
+                }
             };
-            eprintln!("[config-migrate] {que} en {}: {donde}", r.archivo);
+            eprintln!(
+                "[config-migrate] {saco} de {}: {} ({porque})",
+                r.archivo,
+                donde(&q.seccion, &q.clave)
+            );
+        }
+
+        let que = if prueba { "agregaría" } else { "agregado" };
+        for (seccion, clave) in &r.agregadas {
+            eprintln!("[config-migrate] {que} en {}: {}", r.archivo, donde(seccion, clave));
         }
     }
 
     if cambios == 0 {
-        eprintln!("[config-migrate] no hay opciones nuevas para esta cuenta");
+        eprintln!("[config-migrate] no hay nada que cambiar en esta cuenta");
     }
 }

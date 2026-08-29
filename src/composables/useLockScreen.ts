@@ -8,11 +8,13 @@ import { computed, onUnmounted, ref } from 'vue';
  *
  * Tres cosas, y las tres se piden al lado de Rust:
  *
- * - **Dónde está el mouse.** La pantalla de bloqueo no es una superficie
- *   estirada sobre todos los monitores como el greeter: el protocolo pide una
- *   por salida, así que son páginas separadas que no comparten estado. Se
- *   coordinan por eventos: la que recibe el puntero avisa quién es, y las demás
- *   esconden el formulario.
+ * - **Cuál de las pantallas es la activa.** La pantalla de bloqueo no es una
+ *   superficie estirada sobre todos los monitores como el greeter: el protocolo
+ *   pide una por salida, así que son páginas separadas que no comparten estado.
+ *   Se coordinan por eventos, y hay tres cosas que pueden reclamar la pantalla:
+ *   el foco del teclado —lo avisa Rust, que es quien lo sabe—, el puntero, y una
+ *   tecla que llegue a una pantalla que no está mostrando el formulario. Mientras
+ *   ninguna reclamó, la de arranque es la del monitor primario.
  * - **Qué aplicaciones tienen avisos sin leer**, sólo el icono y cuántos.
  * - **Si hay algo sonando**, para poder pausarlo sin desbloquear.
  */
@@ -31,19 +33,41 @@ export interface Reproduccion {
 	sonando: boolean;
 }
 
-/** Quién tiene el puntero. Lo escuchan todas las pantallas. */
+/** Quién reclamó la pantalla. Lo escuchan todas, y también lo emite Rust. */
 export const EVENTO_PANTALLA_ACTIVA = 'lock:pantalla-activa';
 
 /**
  * Si esta pantalla muestra el formulario.
  *
- * `activa === null` es «nadie tiene el puntero», y ahí se muestran todas: con
- * un compositor que no mande `enter` hasta que el mouse se mueva, la
- * alternativa sería una sesión bloqueada sin ningún lugar donde escribir la
- * contraseña. Es preferible mostrarlo de más que de menos.
+ * Cuatro casos, en orden:
+ *
+ * 1. **Alguien reclamó el teclado o el puntero** (`activa`): muestra esa y nadie más.
+ * 2. **Todavía no se sabe cuál es la de arranque** (`porOmision === undefined`): no
+ *    la muestra ninguna. Dura lo que tarda Rust en contestar, y es preferible a
+ *    mostrarla en todas y que se achique sola: el parpadeo era exactamente el
+ *    síntoma que esto vino a arreglar, y la ventana no es corta —la vista espera
+ *    también a que cargue el fondo de escritorio, que viaja como data URL—.
+ * 3. **Rust dijo cuál es** (`porOmision`, el monitor primario): muestra esa. Es el
+ *    caso normal del bloqueo por inactividad, donde nadie está tocando el mouse.
+ * 4. **No se pudo resolver** (`porOmision === null`): se muestran todas. Es la salida
+ *    de emergencia, y sigue estando: una sesión bloqueada sin ningún lugar donde
+ *    escribir la contraseña es una máquina que se apaga del botón. Se llega ahí si
+ *    la consulta falla **o si tarda demasiado**, que es lo que evita que el caso 2
+ *    se vuelva permanente.
+ *
+ * `porOmision` no tiene valor por omisión a propósito: con uno, pasarle `undefined`
+ * —que es un estado con significado propio— lo reemplazaría por el del parámetro y
+ * el caso 2 no se podría ni escribir ni probar.
  */
-export function debeMostrar(propia: string, activa: string | null): boolean {
-	return activa === null || activa === propia;
+export function debeMostrar(
+	propia: string,
+	activa: string | null,
+	porOmision: string | null | undefined,
+): boolean {
+	if (activa !== null) return activa === propia;
+	if (porOmision === undefined) return false;
+	if (porOmision !== null) return porOmision === propia;
+	return true;
 }
 
 /**
@@ -64,19 +88,50 @@ const REFRESCO_MS = 5000;
 /** Cuánto vale el aviso de quién tiene el puntero: tres refrescos. */
 export const CADUCIDAD_MS = REFRESCO_MS * 3;
 
+/**
+ * Cuánto se espera a que Rust diga cuál es la pantalla de arranque.
+ *
+ * Pasado el plazo se muestran todas. No es por prolijidad: si el comando no
+ * contestara nunca, sin esto no quedaría **ninguna** pantalla donde escribir.
+ */
+export const ESPERA_PANTALLA_MS = 3000;
+
 export function useLockScreen() {
 	const etiqueta = getCurrentWindow().label;
 
-	/** La pantalla que tiene el puntero, o `null` mientras nadie lo vio. */
+	/** La pantalla que tiene el teclado o el puntero, o `null` mientras nadie lo dijo. */
 	const pantallaActiva = ref<string | null>(null);
+	/**
+	 * Cuál dibuja el formulario mientras nadie reclame nada. La resuelve Rust.
+	 *
+	 * `undefined` es «todavía no se sabe» y `null` es «no se pudo saber»: la
+	 * diferencia importa, porque el primero no muestra en ninguna y el segundo
+	 * muestra en todas.
+	 */
+	const pantallaPorOmision = ref<string | null | undefined>(undefined);
 	/** Cuándo llegó el último aviso, para poder dejar de creerle. */
 	let ultimoAviso = 0;
-	const esLaPantallaDelMouse = computed(() => debeMostrar(etiqueta, pantallaActiva.value));
+	const esLaPantallaDelMouse = computed(() =>
+		debeMostrar(etiqueta, pantallaActiva.value, pantallaPorOmision.value),
+	);
 	const avisos = ref<AplicacionConAvisos[]>([]);
 	const reproduccion = ref<Reproduccion | null>(null);
 
 	let dejarDeEscuchar: UnlistenFn | null = null;
 	let refresco: ReturnType<typeof setInterval> | null = null;
+
+	/**
+	 * Esta pantalla tiene el teclado: se lo dice a las demás.
+	 *
+	 * Es la red de seguridad, y la razón por la que mostrar en una sola pantalla es
+	 * seguro. Si el compositor le dio el foco a una superficie que no está
+	 * dibujando el formulario, la primera tecla llega igual —al documento— y esa
+	 * pantalla reclama. Lo peor que puede pasar es perder esa tecla; sin esto, lo
+	 * peor era una sesión en la que no se puede escribir en ninguna parte.
+	 */
+	function tecladoAqui() {
+		punteroAqui();
+	}
 
 	/** Esta pantalla tiene el puntero: se lo dice a las demás. */
 	function punteroAqui() {
@@ -141,8 +196,38 @@ export function useLockScreen() {
 		await refrescarContexto();
 	}
 
+	/**
+	 * Pregunta en qué pantalla se dibuja, con su plazo.
+	 *
+	 * Arranca en cuanto se usa el composable y no dentro de `empezar()`, que la
+	 * vista llama recién después de pedir el usuario, el avatar y el fondo: hacerla
+	 * esperar a eso dejaba el formulario dibujado en todas las pantallas mientras
+	 * tanto.
+	 */
+	function preguntarLaPantalla(): Promise<void> {
+		const plazo = setTimeout(() => {
+			if (pantallaPorOmision.value === undefined) pantallaPorOmision.value = null;
+		}, ESPERA_PANTALLA_MS);
+
+		return invoke<string>('lock_active_screen')
+			.then((cual) => {
+				pantallaPorOmision.value = cual;
+			})
+			.catch(() => {
+				// Se muestran todas. Es peor que de más, pero nunca de menos.
+				pantallaPorOmision.value = null;
+			})
+			.finally(() => clearTimeout(plazo));
+	}
+
+	// Las dos cosas que no pueden esperar a `empezar()`: saber dónde dibujar, y
+	// poder reclamar la pantalla con una tecla si se dibujó en la equivocada.
+	window.addEventListener('keydown', tecladoAqui);
+	const laPantalla = preguntarLaPantalla();
+
 	async function empezar() {
 		await escucharAlResto();
+		await laPantalla;
 		await refrescarContexto();
 		refresco = setInterval(() => {
 			revisarElAviso();
@@ -151,6 +236,7 @@ export function useLockScreen() {
 	}
 
 	function terminar() {
+		window.removeEventListener('keydown', tecladoAqui);
 		if (dejarDeEscuchar) {
 			dejarDeEscuchar();
 			dejarDeEscuchar = null;
@@ -165,6 +251,8 @@ export function useLockScreen() {
 
 	return {
 		esLaPantallaDelMouse,
+		pantallaPorOmision,
+		tecladoAqui,
 		avisos,
 		reproduccion,
 		punteroAqui,
