@@ -80,7 +80,9 @@ pub struct Resultado {
     pub agregadas: Vec<(String, String)>,
     /// Los atajos que había puesto la migración y que chocaban con uno anterior.
     /// Nunca líneas de la persona: ver `ini::quitar_choques`.
-    pub quitadas: Vec<(String, String)>,
+    pub quitadas: Vec<ini::Quitada>,
+    /// Atajos ligados a comandos distintos. Se informan; el archivo no cambia.
+    pub conflictos: Vec<ini::Conflicto>,
     pub motivo: Option<String>,
 }
 
@@ -90,6 +92,7 @@ impl Resultado {
             archivo: archivo.to_string(),
             agregadas: Vec::new(),
             quitadas: Vec::new(),
+            conflictos: Vec::new(),
             motivo: Some(motivo.to_string()),
         }
     }
@@ -101,7 +104,10 @@ pub struct Cambio {
     /// El texto nuevo, o `None` si no hay nada que escribir.
     pub texto: Option<String>,
     pub agregadas: Vec<(String, String)>,
-    pub quitadas: Vec<(String, String)>,
+    pub quitadas: Vec<ini::Quitada>,
+    /// Atajos ligados a comandos distintos, que no se pueden resolver solos. Se
+    /// informan y no cambian el archivo: ver `ini::quitar_choques`.
+    pub conflictos: Vec<ini::Conflicto>,
 }
 
 /// Limpia y fusiona un archivo; devuelve el texto nuevo, o `None` si no hay nada
@@ -128,15 +134,21 @@ pub fn fusionar_texto(
     let ofrecida = |seccion: &str, clave: &str| {
         ya.contains(&(relativo.to_string(), seccion.to_string(), clave.to_string()))
     };
-    let (limpio, quitadas) = ini::quitar_choques(usuario, paquete, &ofrecida);
-    let (texto, agregado) = ini::fusionar(&limpio, paquete, &ofrecida);
-    if agregado.claves.is_empty() && quitadas.is_empty() {
-        return Cambio::default();
+    let limpieza = ini::quitar_choques(usuario, paquete, &ofrecida);
+    let (texto, agregado) = ini::fusionar(&limpieza.texto, paquete, &ofrecida);
+    if agregado.claves.is_empty() && limpieza.quitadas.is_empty() {
+        return Cambio {
+            texto: None,
+            agregadas: Vec::new(),
+            quitadas: Vec::new(),
+            conflictos: limpieza.conflictos,
+        };
     }
     Cambio {
         texto: Some(texto),
         agregadas: agregado.claves,
-        quitadas,
+        quitadas: limpieza.quitadas,
+        conflictos: limpieza.conflictos,
     }
 }
 
@@ -192,13 +204,14 @@ pub fn aplicar(
             continue;
         };
 
-        let cambio = fusionar_texto(relativo, &usuario, &paquete, &ya);
-        let Cambio { texto, agregadas, quitadas } = cambio;
+        let Cambio { texto, agregadas, quitadas, conflictos } =
+            fusionar_texto(relativo, &usuario, &paquete, &ya);
         let Some(nuevo) = texto else {
             resultados.push(Resultado {
                 archivo: relativo.to_string(),
                 agregadas: Vec::new(),
                 quitadas: Vec::new(),
+                conflictos,
                 motivo: None,
             });
             continue;
@@ -219,6 +232,7 @@ pub fn aplicar(
             archivo: relativo.to_string(),
             agregadas,
             quitadas,
+            conflictos,
             motivo: None,
         });
     }
@@ -247,6 +261,7 @@ pub fn aplicar(
                 archivo: insercion.archivo.to_string(),
                 agregadas: Vec::new(),
                 quitadas: Vec::new(),
+                conflictos: Vec::new(),
                 motivo: None,
             });
             continue;
@@ -268,6 +283,7 @@ pub fn aplicar(
             archivo: insercion.archivo.to_string(),
             agregadas: vec![(SECCION_DE_LINEA.to_string(), insercion.marca.to_string())],
             quitadas: Vec::new(),
+            conflictos: Vec::new(),
             motivo: None,
         });
     }

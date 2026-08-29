@@ -41,6 +41,18 @@ fn main() {
             eprintln!("[config-migrate] {} : {motivo}", r.archivo);
             continue;
         }
+        // Lo que no se puede resolver solo. Va aunque no haya nada que cambiar: es
+        // información sobre el archivo, no un cambio.
+        for c in &r.conflictos {
+            eprintln!(
+                "[config-migrate] {}: «{}» está ligado a comandos distintos por {} \
+                 — no se toca, decidilo vos",
+                r.archivo,
+                c.combo,
+                c.claves.join(", ")
+            );
+        }
+
         if r.agregadas.is_empty() && r.quitadas.is_empty() {
             continue;
         }
@@ -60,12 +72,19 @@ fn main() {
         // Primero lo que se retira, que es lo que más conviene ver: es la única
         // parte de esto que saca una línea del archivo de alguien.
         let saco = if prueba { "quitaría" } else { "quitado" };
-        for (seccion, clave) in &r.quitadas {
+        for q in &r.quitadas {
+            let porque = match q.motivo {
+                migracion::ini::Motivo::LaPusimosYChoca => {
+                    "lo había puesto la actualización y choca con un atajo anterior"
+                }
+                migracion::ini::Motivo::RepiteAOtra => {
+                    "repite un atajo anterior que hace exactamente lo mismo"
+                }
+            };
             eprintln!(
-                "[config-migrate] {saco} de {}: {} \
-                 (lo había puesto la migración y choca con un atajo anterior)",
+                "[config-migrate] {saco} de {}: {} ({porque})",
                 r.archivo,
-                donde(seccion, clave)
+                donde(&q.seccion, &q.clave)
             );
         }
 

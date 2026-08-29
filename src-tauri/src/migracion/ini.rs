@@ -14,7 +14,7 @@
 //! Así que se trabaja **por líneas**: el archivo del usuario se conserva byte por
 //! byte y sólo se **insertan** las claves que le faltan, en su sección.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 /// Una asignación de un INI, con la sección a la que pertenece.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -200,35 +200,120 @@ fn sufijo_de_atajo(clave: &str) -> Option<&str> {
         .find_map(|prefijo| clave.strip_prefix(prefijo))
 }
 
-/// Quita del archivo del usuario los atajos **que puso la migración** y que chocan
-/// con uno que ya estaba.
+/// Los atajos que liga una asignación, **si es de las que llevan etiqueta libre**.
 ///
-/// Es la contracara de la regla nueva de `fusionar`: esa evita el problema de acá en
-/// adelante, y ésta limpia lo que quedó en las cuentas donde ya pasó. Sin las dos, a
-/// quien le quedaron tres terminales en una tecla le siguen quedando tres.
+/// Sólo participan las claves `binding_*` del `[command]` de wayfire, que son las
+/// que tienen el problema: su nombre es una etiqueta arbitraria y el atajo vive en
+/// el valor, así que dos nombres distintos pueden ligar la misma tecla.
 ///
-/// Tres condiciones para tocar una línea, y las tres importan, porque borrar
-/// configuración ajena es lo que este módulo promete no hacer:
+/// Las opciones de plugin quedan afuera aunque su valor parezca un atajo, y eso es
+/// justo lo que hay que hacer: el propio paquete trae `[zoom] modifier = <super>`
+/// —que no es un atajo sino con qué modificador se hace zoom— y
+/// `[wayfire-shell] toggle_menu = <super>`. Tomándolas por atajos, `binding_menu`
+/// chocaba con ellas y no se agregaba nunca en ninguna cuenta. Sus nombres son
+/// fijos, así que comparar por nombre —lo que ya se hacía— alcanza y sobra.
+///
+/// La sección va en el par porque las etiquetas son del `[command]` que las define.
+fn atajos_de(a: &Asignacion) -> Vec<(String, String)> {
+    if sufijo_de_atajo(&a.clave).is_none() {
+        return Vec::new();
+    }
+    combos_de(&a.valor)
+        .into_iter()
+        .map(|c| (a.seccion.clone(), c))
+        .collect()
+}
+
+/// Un atajo ligado más de una vez **a cosas distintas**. No se toca: se informa.
+#[derive(Debug, PartialEq, Eq)]
+pub struct Conflicto {
+    /// El atajo, normalizado.
+    pub combo: String,
+    /// Las claves que se lo disputan, en orden de archivo.
+    pub claves: Vec<String>,
+}
+
+/// Por qué se retiró una línea.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Motivo {
+    /// La puso la migración y choca con un atajo que ya estaba.
+    LaPusimosYChoca,
+    /// Otra línea anterior liga el mismo atajo al mismo comando.
+    RepiteAOtra,
+}
+
+/// Una línea retirada: dónde estaba y por qué se fue.
+#[derive(Debug, PartialEq, Eq)]
+pub struct Quitada {
+    pub seccion: String,
+    pub clave: String,
+    pub motivo: Motivo,
+}
+
+/// El resultado de limpiar un archivo.
+#[derive(Debug, Default, PartialEq, Eq)]
+pub struct Limpieza {
+    pub texto: String,
+    pub quitadas: Vec<Quitada>,
+    /// Lo que quedó sin resolver, para que se pueda ver. Elegir por la persona
+    /// cuál de dos teclas distintas gana sería cambiarle lo que hace el teclado.
+    pub conflictos: Vec<Conflicto>,
+}
+
+/// El comando que dispara un atajo: el `command_x` de su `binding_x`.
+fn comando_de<'a>(todas: &'a [Asignacion], a: &Asignacion) -> Option<&'a str> {
+    let sufijo = sufijo_de_atajo(&a.clave)?;
+    let pareja = format!("command_{sufijo}");
+    todas
+        .iter()
+        .find(|x| x.seccion == a.seccion && x.clave == pareja)
+        .map(|x| x.valor.as_str())
+}
+
+/// Quita del archivo del usuario las líneas que ligan un atajo que ya está ligado.
+///
+/// Son dos casos distintos y se resuelven distinto, porque la pregunta difícil no es
+/// cuál sobra sino **cuál se queda**.
+///
+/// # 1. Lo que puso la migración y choca con lo que ya estaba
+///
+/// Acá el que se queda está claro: la línea anterior. La nuestra es la de más.
+/// Tres condiciones para tocarla, porque borrar configuración ajena es justo lo que
+/// este módulo promete no hacer:
 ///
 /// 1. **La pusimos nosotros.** Sale del registro de lo ya ofrecido —`fue_agregada`—,
 ///    que es la única forma de distinguir una línea nuestra de una que la persona
-///    escribió. Lo que no está anotado no se toca ni aunque choque.
+///    escribió. Lo que no está anotado no entra por este camino.
 /// 2. **Sigue diciendo lo que decía cuando la pusimos**, comparado contra el archivo
 ///    del paquete. Si alguien le cambió el valor, la línea dejó de ser nuestra.
-/// 3. **Choca de verdad**: el mismo atajo está ligado por otra línea que no pusimos
-///    nosotros —esa gana, la de más es la nuestra— o por otra nuestra anterior, que
-///    es lo que pasaba cuando el paquete traía el mismo atajo con dos etiquetas.
+/// 3. **Choca de verdad** con otra línea.
 ///
-/// Cuando se quita un `binding_x` se quita también su `command_x`, si también es
-/// nuestro: solo, no dispara nada.
+/// # 2. Dos líneas que hacen exactamente lo mismo
 ///
-/// El registro **no** se toca: la clave sigue anotada como ofrecida, así que no
-/// vuelve en el próximo arranque. Se ofreció, resultó que chocaba, se retira.
+/// El paquete viejo traía el mismo atajo con varias etiquetas —`binding_custom_0` y
+/// `binding_custom_4`, las dos con `KEY_T <super>` y las dos ejecutando
+/// `vasak-terminal`; cuatro `KEY_MUTE` ejecutando todas `amixer set Master toggle`—,
+/// y esas líneas están en las cuentas desde que se crearon: no las agregó la
+/// migración y no hay registro que las señale.
+///
+/// Se quitan igual, pero **sólo cuando disparan el mismo comando**. Ahí no hay nada
+/// que elegir: la tecla queda haciendo exactamente lo que hacía, una vez en vez de
+/// tres. Se conserva la primera del archivo.
+///
+/// Si el mismo atajo dispara **comandos distintos**, no se toca ninguna y se informa:
+/// decidir cuál gana es cambiarle a alguien lo que hace una tecla, y eso no es
+/// nuestro. Es el único caso en el que esto deja el archivo como estaba.
+///
+/// # En los dos casos
+///
+/// Cuando se quita un `binding_x` se quita también su `command_x`: solo no dispara
+/// nada. Y el registro no se toca, así que una clave nuestra que se retira sigue
+/// anotada como ofrecida y no vuelve en el próximo arranque.
 pub fn quitar_choques(
     usuario: &str,
     paquete: &str,
     fue_agregada: &dyn Fn(&str, &str) -> bool,
-) -> (String, Vec<(String, String)>) {
+) -> Limpieza {
     let del_usuario = asignaciones_de(usuario);
     let del_paquete = asignaciones_de(paquete);
 
@@ -239,41 +324,89 @@ pub fn quitar_choques(
                 .any(|p| p.seccion == a.seccion && p.clave == a.clave && p.valor == a.valor)
     };
 
-    // Lo que ya estaba ligado sin que lo pusiéramos nosotros. Es la línea que gana.
-    let mut ligados: HashSet<String> = del_usuario
-        .iter()
-        .filter(|a| !nuestra(a))
-        .flat_map(|a| combos_de(&a.valor))
-        .collect();
-
-    // En orden de archivo: si dos líneas nuestras traen el mismo atajo —pasaba
-    // cuando el paquete lo traía con dos etiquetas— queda la primera.
-    let mut sobran: HashSet<(String, String)> = HashSet::new();
-    for a in del_usuario.iter().filter(|a| nuestra(a)) {
-        let combos = combos_de(&a.valor);
-        if combos.is_empty() {
-            continue;
-        }
-        if !combos.iter().any(|c| ligados.contains(c)) {
-            ligados.extend(combos);
-            continue;
-        }
-        sobran.insert((a.seccion.clone(), a.clave.clone()));
+    // Qué se retira y por qué. Marca la línea y, si es un atajo, la mitad que
+    // ejecuta: sola no dispara nada.
+    let mut sobran: HashMap<(String, String), Motivo> = HashMap::new();
+    let descartar = |a: &Asignacion, motivo: Motivo, sobran: &mut HashMap<_, _>| {
+        sobran.insert((a.seccion.clone(), a.clave.clone()), motivo);
         if let Some(sufijo) = sufijo_de_atajo(&a.clave) {
             let pareja = format!("command_{sufijo}");
             if del_usuario
                 .iter()
-                .any(|x| x.seccion == a.seccion && x.clave == pareja && nuestra(x))
+                .any(|x| x.seccion == a.seccion && x.clave == pareja)
             {
-                sobran.insert((a.seccion.clone(), pareja));
+                sobran.insert((a.seccion.clone(), pareja), motivo);
             }
+        }
+    };
+
+    // ── 1. Lo nuestro pierde contra lo que ya estaba ────────────────────────────
+    //
+    // El orden del archivo no decide acá: aunque nuestra línea esté escrita más
+    // arriba, la que se queda es la de la persona.
+    let mut ligados: HashSet<(String, String)> = del_usuario
+        .iter()
+        .filter(|a| !nuestra(a))
+        .flat_map(atajos_de)
+        .collect();
+
+    for a in del_usuario.iter().filter(|a| nuestra(a)) {
+        let atajos = atajos_de(a);
+        if atajos.is_empty() {
+            continue;
+        }
+        if atajos.iter().any(|c| ligados.contains(c)) {
+            descartar(a, Motivo::LaPusimosYChoca, &mut sobran);
+        } else {
+            ligados.extend(atajos);
+        }
+    }
+
+    // ── 2. Dos líneas que hacen exactamente lo mismo ────────────────────────────
+    //
+    // Acá sí manda el orden: se conserva la primera. Sólo se miran los atajos de un
+    // solo combo; uno que lista varios con `|` puede compartir uno y no los otros, y
+    // quitar la línea entera perdería los que no se repetían.
+    let mut dueno: Vec<((String, String), &Asignacion)> = Vec::new();
+    let mut conflictos: Vec<Conflicto> = Vec::new();
+
+    for a in del_usuario.iter() {
+        if sobran.contains_key(&(a.seccion.clone(), a.clave.clone())) {
+            continue;
+        }
+        let atajos = atajos_de(a);
+        let [atajo] = atajos.as_slice() else { continue };
+
+        let Some((_, primero)) = dueno.iter().find(|(c, _)| c == atajo) else {
+            dueno.push((atajo.clone(), a));
+            continue;
+        };
+
+        let comando = comando_de(&del_usuario, a);
+        if comando.is_some() && comando == comando_de(&del_usuario, primero) {
+            descartar(a, Motivo::RepiteAOtra, &mut sobran);
+            continue;
+        }
+
+        // Distinto comando: no se toca, se informa.
+        match conflictos.iter_mut().find(|x| x.combo == atajo.1) {
+            Some(ya) => ya.claves.push(a.clave.clone()),
+            None => conflictos.push(Conflicto {
+                combo: atajo.1.clone(),
+                claves: vec![primero.clave.clone(), a.clave.clone()],
+            }),
         }
     }
 
     if sobran.is_empty() {
-        return (usuario.to_string(), Vec::new());
+        return Limpieza {
+            texto: usuario.to_string(),
+            quitadas: Vec::new(),
+            conflictos,
+        };
     }
 
+    // ── Reescribir sin esas líneas, conservando todo lo demás byte por byte ──────
     let terminador = terminador_de(usuario);
     let mut seccion = String::new();
     let mut salida: Vec<&str> = Vec::new();
@@ -286,9 +419,12 @@ pub fn quitar_choques(
             continue;
         }
         if let Some(clave) = clave_de(linea) {
-            let cual = (seccion.clone(), clave.to_string());
-            if sobran.contains(&cual) {
-                quitadas.push(cual);
+            if let Some(&motivo) = sobran.get(&(seccion.clone(), clave.to_string())) {
+                quitadas.push(Quitada {
+                    seccion: seccion.clone(),
+                    clave: clave.to_string(),
+                    motivo,
+                });
                 continue;
             }
         }
@@ -299,7 +435,12 @@ pub fn quitar_choques(
     if usuario.ends_with('\n') || usuario.is_empty() {
         texto.push_str(terminador);
     }
-    (texto, quitadas)
+
+    Limpieza {
+        texto,
+        quitadas,
+        conflictos,
+    }
 }
 
 /// Agrega a `usuario` las claves de `paquete` que le falten y que no estén en
@@ -329,9 +470,9 @@ pub fn fusionar(
     let mut agregado = Agregado::default();
 
     // Los atajos que el archivo del usuario ya tiene ligados, normalizados.
-    let mut ligados: HashSet<String> = asignaciones_de(usuario)
+    let mut ligados: HashSet<(String, String)> = asignaciones_de(usuario)
         .iter()
-        .flat_map(|a| combos_de(&a.valor))
+        .flat_map(atajos_de)
         .collect();
 
     // Los `binding_*` que se van a saltear por chocar. Se calcula antes del bucle
@@ -343,7 +484,7 @@ pub fn fusionar(
         .iter()
         .filter_map(|a| {
             let sufijo = sufijo_de_atajo(&a.clave)?;
-            let choca = combos_de(&a.valor).iter().any(|c| ligados.contains(c));
+            let choca = atajos_de(a).iter().any(|c| ligados.contains(c));
             (choca && !tiene(usuario, &a.seccion, &a.clave)).then(|| {
                 (a.seccion.clone(), sufijo.to_string())
             })
@@ -356,8 +497,8 @@ pub fn fusionar(
             continue;
         }
 
-        let combos = combos_de(&a.valor);
-        if combos.iter().any(|c| ligados.contains(c)) {
+        let atajos = atajos_de(&a);
+        if atajos.iter().any(|c| ligados.contains(c)) {
             continue;
         }
         if let Some(sufijo) = a.clave.strip_prefix("command_") {
@@ -382,7 +523,7 @@ pub fn fusionar(
                 lineas.push(nueva);
             }
         }
-        ligados.extend(combos);
+        ligados.extend(atajos);
         agregado.claves.push((a.seccion.clone(), a.clave.clone()));
     }
 
@@ -676,15 +817,21 @@ mod tests {
         assert_eq!(a.claves, vec![("command".to_string(), "command_files".to_string())]);
     }
 
+    /// La regla mira sólo las claves de etiqueta libre, y tiene que ser así.
+    ///
+    /// El propio paquete trae `[zoom] modifier = <super>` —que no es un atajo sino
+    /// con qué modificador se hace zoom— y `[wayfire-shell] toggle_menu = <super>`.
+    /// Si esos valores contaran como atajos ligados, `binding_menu = <super>`
+    /// chocaría con ellos y no se agregaría en **ninguna** cuenta. Sus nombres son
+    /// fijos, así que la comparación por nombre que ya existía alcanza.
     #[test]
-    fn el_choque_tambien_cuenta_entre_secciones() {
-        // Un atajo es global: que `<super> KEY_E` esté en `[expo]` y el paquete lo
-        // traiga en `[command]` no lo hace otro atajo, lo hace un conflicto.
-        let usuario = "[expo]\ntoggle = <super> KEY_E\n";
-        let paquete = "[command]\nbinding_files = <super> KEY_E\ncommand_files = vasak-file-manager\n";
+    fn una_opcion_de_plugin_no_bloquea_un_atajo_del_paquete() {
+        let usuario = "[zoom]\nmodifier = <super>\n\n[wayfire-shell]\ntoggle_menu = <super>\n\n[command]\n";
+        let paquete = "[command]\nbinding_menu = <super>\ncommand_menu = dbus-send --session\n";
         let (r, a) = fusionar(usuario, paquete, &nada_ofrecido);
-        assert!(!r.contains("binding_files"), "{r}");
-        assert!(a.claves.is_empty());
+        assert!(r.contains("binding_menu = <super>"), "{r}");
+        assert!(r.contains("command_menu = dbus-send --session"), "{r}");
+        assert_eq!(a.claves.len(), 2);
     }
 
     #[test]
@@ -714,7 +861,7 @@ mod tests {
         let paquete = "[command]\nbinding_terminal = <super> KEY_T\ncommand_terminal = vasak-terminal\n";
         let nuestras = |s: &str, c: &str| s == "command" && c.ends_with("_terminal");
 
-        let (r, quitadas) = quitar_choques(usuario, paquete, &nuestras);
+        let Limpieza { texto: r, quitadas, .. } = quitar_choques(usuario, paquete, &nuestras);
 
         assert!(!r.contains("binding_terminal"), "{r}");
         // Y su pareja: un `command_` sin `binding_` no dispara nada.
@@ -735,7 +882,7 @@ mod tests {
         let paquete = "[command]\nbinding_terminal = <super> KEY_T\n";
         let nada_nuestro = |_: &str, _: &str| false;
 
-        let (r, quitadas) = quitar_choques(usuario, paquete, &nada_nuestro);
+        let Limpieza { texto: r, quitadas, .. } = quitar_choques(usuario, paquete, &nada_nuestro);
         assert_eq!(r, usuario);
         assert!(quitadas.is_empty());
     }
@@ -749,7 +896,7 @@ mod tests {
         let paquete = "[command]\nbinding_terminal = <super> KEY_T\n";
         let nuestras = |s: &str, c: &str| s == "command" && c == "binding_terminal";
 
-        let (r, quitadas) = quitar_choques(usuario, paquete, &nuestras);
+        let Limpieza { texto: r, quitadas, .. } = quitar_choques(usuario, paquete, &nuestras);
         assert_eq!(r, usuario, "el valor no es el del paquete: es de la persona");
         assert!(quitadas.is_empty());
     }
@@ -763,7 +910,7 @@ mod tests {
         let paquete = usuario;
         let nuestras = |_: &str, _: &str| true;
 
-        let (r, quitadas) = quitar_choques(usuario, paquete, &nuestras);
+        let Limpieza { texto: r, quitadas, .. } = quitar_choques(usuario, paquete, &nuestras);
         assert_eq!(r, usuario);
         assert!(quitadas.is_empty());
     }
@@ -778,10 +925,122 @@ mod tests {
         let paquete = usuario;
         let nuestras = |_: &str, _: &str| true;
 
-        let (r, quitadas) = quitar_choques(usuario, paquete, &nuestras);
+        let Limpieza { texto: r, quitadas, .. } = quitar_choques(usuario, paquete, &nuestras);
         assert!(r.contains("binding_custom_0"), "queda la primera: {r}");
         assert!(!r.contains("binding_custom_4"), "{r}");
-        assert_eq!(quitadas, vec![("command".to_string(), "binding_custom_4".to_string())]);
+        assert_eq!(
+            quitadas,
+            vec![Quitada {
+                seccion: "command".to_string(),
+                clave: "binding_custom_4".to_string(),
+                motivo: Motivo::LaPusimosYChoca,
+            }]
+        );
+    }
+
+    /// Lo que traía el skel viejo: el mismo atajo con dos etiquetas.
+    ///
+    /// Estas líneas están en la cuenta desde que se creó, no las puso la migración y
+    /// no hay registro que las señale. Se quitan igual porque disparan **el mismo
+    /// comando**: la tecla queda haciendo exactamente lo que hacía, una vez.
+    #[test]
+    fn dos_lineas_que_hacen_lo_mismo_quedan_en_una() {
+        let usuario = "[command]\n\
+                       binding_custom_0 = KEY_T <super>\n\
+                       command_custom_0 = vasak-terminal\n\
+                       binding_custom_4 = KEY_T <super>\n\
+                       command_custom_4 = vasak-terminal\n";
+        let nada_nuestro = |_: &str, _: &str| false;
+
+        let limpieza = quitar_choques(usuario, "", &nada_nuestro);
+
+        assert!(limpieza.texto.contains("binding_custom_0"), "queda la primera");
+        assert!(limpieza.texto.contains("command_custom_0"), "y su comando");
+        assert!(!limpieza.texto.contains("binding_custom_4"), "{}", limpieza.texto);
+        assert!(!limpieza.texto.contains("command_custom_4"), "{}", limpieza.texto);
+        assert_eq!(limpieza.quitadas.len(), 2);
+        // Y con el motivo que corresponde: ésta no la puso la migración.
+        assert!(limpieza.quitadas.iter().all(|q| q.motivo == Motivo::RepiteAOtra));
+        assert!(limpieza.conflictos.is_empty());
+    }
+
+    #[test]
+    fn los_cuatro_key_mute_del_skel_viejo_quedan_en_uno() {
+        // El caso real, con los nombres y el comando que traía el paquete.
+        let usuario = "[command]\n\
+                       binding_mute = KEY_MUTE\n\
+                       command_mute = amixer set Master toggle\n\
+                       binding_custom_2 = KEY_MUTE\n\
+                       command_custom_2 = amixer set Master toggle\n\
+                       binding_custom_3 = KEY_MUTE\n\
+                       command_custom_3 = amixer set Master toggle\n\
+                       binding_custom_6 = KEY_MUTE\n\
+                       command_custom_6 = amixer set Master toggle\n";
+        let limpieza = quitar_choques(usuario, "", &|_: &str, _: &str| false);
+
+        let ligados = asignaciones_de(&limpieza.texto)
+            .iter()
+            .filter(|a| sufijo_de_atajo(&a.clave).is_some())
+            .count();
+        assert_eq!(ligados, 1, "{}", limpieza.texto);
+        assert!(limpieza.texto.contains("binding_mute"), "queda el primero");
+        assert_eq!(limpieza.quitadas.len(), 6, "tres atajos y sus tres comandos");
+    }
+
+    /// El único caso en el que la limpieza deja el archivo como estaba.
+    #[test]
+    fn el_mismo_atajo_con_comandos_distintos_no_se_toca_y_se_informa() {
+        // Elegir cuál gana es cambiarle a alguien lo que hace una tecla.
+        let usuario = "[command]\n\
+                       binding_mute = KEY_MUTE\n\
+                       command_mute = wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle\n\
+                       binding_custom_2 = KEY_MUTE\n\
+                       command_custom_2 = amixer set Master toggle\n";
+        let limpieza = quitar_choques(usuario, "", &|_: &str, _: &str| false);
+
+        assert_eq!(limpieza.texto, usuario);
+        assert!(limpieza.quitadas.is_empty());
+        assert_eq!(
+            limpieza.conflictos,
+            vec![Conflicto {
+                combo: "KEY_MUTE".to_string(),
+                claves: vec!["binding_mute".to_string(), "binding_custom_2".to_string()],
+            }]
+        );
+    }
+
+    #[test]
+    fn la_limpieza_tampoco_mira_las_opciones_de_plugin() {
+        // Misma razón que al agregar: `[zoom] modifier` no es un atajo, y reportarlo
+        // como conflicto contra `binding_menu` sería un aviso falso en cada arranque
+        // de cada cuenta.
+        let usuario = "[zoom]\nmodifier = <super>\n\n\
+                       [command]\nbinding_menu = <super>\ncommand_menu = dbus-send\n";
+        let limpieza = quitar_choques(usuario, "", &|_: &str, _: &str| false);
+
+        assert_eq!(limpieza.texto, usuario);
+        assert!(limpieza.quitadas.is_empty());
+        assert!(limpieza.conflictos.is_empty(), "{:?}", limpieza.conflictos);
+    }
+
+    #[test]
+    fn la_linea_de_la_persona_gana_aunque_este_escrita_mas_abajo() {
+        // El orden del archivo decide entre dos líneas iguales, pero no entre una
+        // nuestra y una suya: ahí gana la suya, esté donde esté.
+        let usuario = "[command]\n\
+                       binding_terminal = <super> KEY_T\n\
+                       command_terminal = vasak-terminal\n\
+                       binding_mio = <super> KEY_T\n\
+                       command_mio = alacritty\n";
+        let paquete = "[command]\nbinding_terminal = <super> KEY_T\ncommand_terminal = vasak-terminal\n";
+        let nuestras = |s: &str, c: &str| s == "command" && c.ends_with("_terminal");
+
+        let limpieza = quitar_choques(usuario, paquete, &nuestras);
+
+        assert!(!limpieza.texto.contains("binding_terminal"), "{}", limpieza.texto);
+        assert!(limpieza.texto.contains("binding_mio"), "{}", limpieza.texto);
+        // Y no queda reportado como conflicto: se resolvió quitando la nuestra.
+        assert!(limpieza.conflictos.is_empty(), "{:?}", limpieza.conflictos);
     }
 
     #[test]
@@ -798,7 +1057,7 @@ mod tests {
         let paquete = "[command]\nbinding_terminal = <super> KEY_T\n";
         let nuestras = |s: &str, c: &str| s == "command" && c == "binding_terminal";
 
-        let (r, _) = quitar_choques(usuario, paquete, &nuestras);
+        let Limpieza { texto: r, .. } = quitar_choques(usuario, paquete, &nuestras);
         assert!(r.starts_with("# cabecera\n"), "{r}");
         assert!(r.contains("# por qué esto está acá\n"), "{r}");
         assert!(r.contains("[animate]\nduration = 300"), "{r}");
@@ -812,8 +1071,8 @@ mod tests {
         let paquete = "[command]\nbinding_terminal = <super> KEY_T\n";
         let nuestras = |s: &str, c: &str| s == "command" && c == "binding_terminal";
 
-        let (una, q1) = quitar_choques(usuario, paquete, &nuestras);
-        let (dos, q2) = quitar_choques(&una, paquete, &nuestras);
+        let Limpieza { texto: una, quitadas: q1, .. } = quitar_choques(usuario, paquete, &nuestras);
+        let Limpieza { texto: dos, quitadas: q2, .. } = quitar_choques(&una, paquete, &nuestras);
         assert_eq!(una, dos);
         assert_eq!(q1.len(), 1);
         assert!(q2.is_empty());
