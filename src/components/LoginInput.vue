@@ -110,7 +110,7 @@ const login = async () => {
         autocomplete="off"
         spellcheck="false"
         :placeholder="t('login.usernamePlaceholder')"
-        class="p-2 border border-ui-border rounded-corner w-full bg-ui-bg/80 text-tx-main focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
+        class="p-2 border border-ui-border rounded-corner w-full bg-ui-bg/80 text-tx-main focus:ring-2 focus:ring-primary focus:border-transparent"
       />
     </div>
 
@@ -130,7 +130,7 @@ const login = async () => {
         :placeholder="t('login.passwordPlaceholder')"
         @keydown="updateCapsLock"
         @keyup="updateCapsLock"
-        class="p-2 border border-ui-border rounded-corner w-full bg-ui-bg/80 text-tx-main focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
+        class="p-2 border border-ui-border rounded-corner w-full bg-ui-bg/80 text-tx-main focus:ring-2 focus:ring-primary focus:border-transparent"
       />
     </div>
 
