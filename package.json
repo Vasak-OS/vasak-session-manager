@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vue-tsc --noEmit && vite build",
+    "build": "bunx --bun vue-tsc --noEmit && bunx --bun vite build",
     "preview": "vite preview",
     "tauri": "tauri",
     "test": "bun test"
