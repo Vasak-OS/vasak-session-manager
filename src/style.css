@@ -4,6 +4,16 @@
   /* general */
   --corner-radius: 10px;
 
+  /* Las tres fuentes que se eligen en Configuración. Estos valores rigen hasta
+     que el gestor de configuración escribe los de verdad, y son los que quedan
+     si esa lectura falla — que acá pasa de verdad: el saludo corre antes de que
+     haya sesión, así que no hay ningún `vasak.conf` que leer y se queda con
+     éstos. La pantalla de bloqueo sí corre dentro de la sesión y los recibe. */
+  --vsk-font-apps: sans-serif;
+  --vsk-font-title: sans-serif;
+  --vsk-font-terminal: monospace;
+
+
   /* The greeter runs before any GTK theme is set up, so the engine's own
      widgets — scrollbars, the caret, autofill, focus rings — default to the
      light palette and come out white on a dark login screen. */
@@ -71,6 +81,12 @@
 @custom-variant dark (&:where(.dark, .dark *));
 
 @theme {
+  /* Las tres fuentes, como utilidades de Tailwind. `font-sans` es además la que
+     se aplica al documento sin escribir ninguna clase. */
+  --font-sans: var(--vsk-font-apps);
+  --font-title: var(--vsk-font-title);
+  --font-mono: var(--vsk-font-terminal);
+
   /* radius */
   --radius-corner: var(--corner-radius);
   --radius-corner-window: calc(var(--corner-radius) + 2px);

@@ -2,7 +2,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { useI18n } from "@vasakgroup/tauri-plugin-i18n";
 import { useConfigStore } from "@vasakgroup/plugin-config-manager";
-import type { Store } from "pinia";
 import { nextTick, onMounted, ref } from "vue";
 import GreeterClock from "@/components/GreeterClock.vue";
 import LockIcon from "@/components/LockIcon.vue";
@@ -49,10 +48,7 @@ onMounted(async () => {
 
   // Lo último, y sin bloquear nada de lo anterior: si leer la configuración se
   // cuelga o falla, la pantalla ya está usable con los colores por defecto.
-  const configStore = useConfigStore() as Store<
-    "config",
-    { config: any; loadConfig: () => Promise<void> }
-  >;
+  const configStore = useConfigStore();
   configStore.loadConfig().catch(() => {
     // The shipped defaults are still a Vasak screen.
   });
