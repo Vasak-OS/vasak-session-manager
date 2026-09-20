@@ -100,7 +100,7 @@ onMounted(load);
         loop
         muted
         playsinline
-        disablepictureinpicture
+        disablePictureInPicture
         tabindex="-1"
         aria-hidden="true"
         @error="onVideoError"
