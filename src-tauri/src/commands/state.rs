@@ -39,15 +39,15 @@ pub struct LastLogin {
 fn state_paths() -> Vec<PathBuf> {
     let mut paths = vec![PathBuf::from("/var/lib/vasak-session-manager")];
 
-    if let Some(dir) = std::env::var_os("XDG_STATE_HOME") {
-        paths.push(PathBuf::from(dir).join("vasak-session-manager"));
+    // Por `dirs` y filtrando que sea absoluta: aceptaba cualquier valor,
+    // incluida la cadena vacía y cualquier ruta relativa, que el estándar manda
+    // ignorar. Acá se escribe, así que una base relativa dejaba el estado de la
+    // sesión bajo el directorio de trabajo del proceso.
+    if let Some(dir) = dirs::state_dir().filter(|base| base.is_absolute()) {
+        paths.push(dir.join("vasak-session-manager"));
     }
-    if let Some(home) = std::env::var_os("HOME") {
-        paths.push(
-            PathBuf::from(home)
-                .join(".local/state")
-                .join("vasak-session-manager"),
-        );
+    if let Some(home) = dirs::home_dir().filter(|base| base.is_absolute()) {
+        paths.push(home.join(".local/state").join("vasak-session-manager"));
     }
 
     paths
@@ -161,7 +161,9 @@ mod tests {
     #[test]
     fn each_account_keeps_its_own_session() {
         let mut state = LastLogin::default();
-        state.sessions.insert("ada".into(), "wayfire.desktop".into());
+        state
+            .sessions
+            .insert("ada".into(), "wayfire.desktop".into());
         state.sessions.insert("bob".into(), "plasma.desktop".into());
 
         let round_tripped = parse(&serde_json::to_string(&state).unwrap());

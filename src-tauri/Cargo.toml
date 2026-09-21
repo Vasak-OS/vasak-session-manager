@@ -1,6 +1,6 @@
 [package]
 name = "vasak-session-manager"
-version = "0.6.4"
+version = "0.6.5"
 description = "VasakOS session manager (display manager / greeter)"
 authors = ["Vasak Group", "Joaquin (Pato) Decima"]
 edition = "2021"
@@ -36,6 +36,9 @@ path = "src/config_migrate_main.rs"
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
+# Los directorios base del estándar: la regla de que una variable relativa o
+# vacía se ignora vive ahí y no en una copia acá.
+dirs = "6"
 tauri = { version = "2", features = [] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
