@@ -247,13 +247,14 @@ pub fn aplicar(hogar: &Path, skel: &Path, ruta_estado: &Path, escribir: bool) ->
             // El reemplazo se anota igual que una clave ofrecida, y por el mismo
             // motivo: quien después vuelva a poner el valor viejo a propósito se
             // queda con él.
-            for r in replacements::REPLACEMENTS
-                .iter()
-                .filter(|r| r.archivo == relativo)
-            {
-                if reemplazadas.iter().any(|a| a.clave == r.clave) {
-                    ya.insert(replacements::marca(r));
-                }
+            //
+            // Se inserta la marca que trae cada `Aplicado` y no una que se busque
+            // por clave: dos entradas pueden compartir archivo y clave y diferir
+            // en `anterior` —el mismo atajo que cambia por segunda vez—, y ahí
+            // buscarlas por clave anotaba las dos al aplicarse una sola. La que
+            // no se aplicó quedaba marcada como hecha y no se aplicaba nunca.
+            for a in &reemplazadas {
+                ya.insert(a.marca.clone());
             }
             hubo_cambios = true;
         }

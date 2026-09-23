@@ -54,13 +54,21 @@ pub struct Replacement {
     pub nuevo: &'static str,
 }
 
-/// Lo que se reemplazó, para poder informarlo.
+/// Lo que se reemplazó, para poder informarlo y anotarlo.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Aplicado {
     pub seccion: String,
     pub clave: String,
     pub anterior: String,
     pub nuevo: String,
+    /// La marca del reemplazo que se aplicó, para el registro.
+    ///
+    /// Viaja acá y no se recalcula del otro lado: dos entradas pueden compartir
+    /// archivo y clave y diferir en `anterior` —es justamente lo que pasa cuando
+    /// el mismo atajo cambia por segunda vez—, y buscándolas por clave se
+    /// anotarían las dos al aplicarse una. La que no se aplicó quedaría marcada
+    /// como hecha y no se aplicaría nunca.
+    pub marca: estado::Clave,
 }
 
 /// Los reemplazos que el escritorio necesita.
@@ -114,11 +122,32 @@ fn es_el_mismo(uno: &str, otro: &str) -> bool {
 ///
 /// Se salta la clave que estamos por cambiar: que su valor viejo esté ahí es
 /// justamente el caso normal.
+///
+/// Se busca **intersección y no igualdad**, porque wayfire acepta varios atajos
+/// para la misma acción separados por `|`. Comparando las listas enteras, una
+/// clave que vale `<super> <alt> KEY_T | KEY_F5` no se parecía a
+/// `<super> <alt> KEY_T` y el reemplazo pasaba: el combo quedaba ligado dos veces,
+/// que es justo lo que esta comprobación existe para impedir.
+///
+/// `es_el_mismo` sigue sirviendo para comparar contra `anterior`, donde lo que
+/// hace falta sí es igualdad — «el valor es exactamente el que traía el paquete»—,
+/// y para los valores que no son atajos.
 fn ya_esta_en_uso(texto: &str, r: &Replacement) -> bool {
+    let nuevos = ini::combos_de(r.nuevo);
+
     ini::asignaciones_de(texto)
         .iter()
         .filter(|a| !(a.seccion == r.seccion && a.clave == r.clave))
-        .any(|a| es_el_mismo(&a.valor, r.nuevo))
+        .any(|a| {
+            if nuevos.is_empty() {
+                // El valor nuevo no es un atajo: no hay combos que cruzar y lo
+                // único que se puede comparar es el texto.
+                return es_el_mismo(&a.valor, r.nuevo);
+            }
+            ini::combos_de(&a.valor)
+                .iter()
+                .any(|combo| nuevos.contains(combo))
+        })
 }
 
 /// Aplica los reemplazos que le tocan a un archivo.
@@ -172,6 +201,7 @@ pub fn apply(relativo: &str, texto: &str, ya: &HashSet<estado::Clave>) -> (Strin
                     clave: r.clave.to_string(),
                     anterior: valor.trim().to_string(),
                     nuevo: r.nuevo.to_string(),
+                    marca: marca(r),
                 });
             }
             None => salida.push(linea.to_string()),
@@ -285,6 +315,60 @@ mod tests {
             "{texto}"
         );
         assert!(hechos.is_empty(), "{hechos:?}");
+    }
+
+    #[test]
+    fn tampoco_si_el_combo_esta_dentro_de_un_valor_con_alternativas() {
+        // Wayfire acepta varios atajos para la misma acción separados por `|`.
+        // Comparando las listas enteras, `<super> <alt> KEY_T | KEY_F5` no se
+        // parecía a `<super> <alt> KEY_T` y el reemplazo pasaba igual: el combo
+        // quedaba ligado dos veces, que es lo que esta comprobación existe para
+        // impedir. Lo marcó CodeRabbit.
+        let suyo = como_lo_dejo_el_paquete().replace(
+            "binding_terminal = <super> KEY_T",
+            "binding_terminal = <super> <alt> KEY_T | KEY_F5",
+        );
+        let (texto, hechos) = apply(WAYFIRE, &suyo, &nada());
+
+        assert!(
+            texto.contains("binding_terminal_overlay = KEY_F12"),
+            "{texto}"
+        );
+        assert!(hechos.is_empty(), "{hechos:?}");
+    }
+
+    #[test]
+    fn un_valor_parecido_pero_de_otro_atajo_no_frena_nada() {
+        // La otra mitad: buscar intersección no puede volverse «cualquier cosa lo
+        // frena». Un valor con alternativas que **no** incluye el combo nuevo deja
+        // pasar el reemplazo.
+        let suyo = como_lo_dejo_el_paquete().replace(
+            "binding_terminal = <super> KEY_T",
+            "binding_terminal = <super> KEY_T | <ctrl> KEY_F5",
+        );
+        let (texto, hechos) = apply(WAYFIRE, &suyo, &nada());
+
+        assert_eq!(hechos.len(), 1, "{hechos:?}");
+        assert!(
+            texto.contains("binding_terminal_overlay = <super> <alt> KEY_T"),
+            "{texto}"
+        );
+    }
+
+    #[test]
+    fn lo_aplicado_trae_la_marca_de_su_propio_reemplazo() {
+        // Y no una que se arme del otro lado buscando por clave: dos entradas
+        // pueden compartir archivo y clave y diferir en `anterior` —el mismo atajo
+        // que cambia por segunda vez—, y ahí se anotaban las dos al aplicarse una.
+        // La que no se aplicó quedaba marcada como hecha y no se aplicaba nunca.
+        // Lo marcó CodeRabbit.
+        let (_, hechos) = apply(WAYFIRE, &como_lo_dejo_el_paquete(), &nada());
+
+        assert_eq!(hechos[0].marca, marca(&REPLACEMENTS[0]));
+        // Y esa marca es la que después frena la segunda pasada.
+        let ya: HashSet<estado::Clave> = hechos.iter().map(|a| a.marca.clone()).collect();
+        let (_, otra_vez) = apply(WAYFIRE, &como_lo_dejo_el_paquete(), &ya);
+        assert!(otra_vez.is_empty(), "{otra_vez:?}");
     }
 
     #[test]
