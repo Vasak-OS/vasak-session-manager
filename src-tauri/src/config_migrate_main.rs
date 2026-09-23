@@ -15,9 +15,13 @@ use vasak_session_manager_lib::migracion;
 
 fn main() {
     let argumentos: Vec<String> = std::env::args().collect();
-    let prueba = argumentos.iter().any(|a| a == "--prueba" || a == "--dry-run");
+    let prueba = argumentos
+        .iter()
+        .any(|a| a == "--prueba" || a == "--dry-run");
 
-    let Some(hogar) = std::env::var_os("HOME").map(PathBuf::from).filter(|p| p.is_absolute())
+    let Some(hogar) = std::env::var_os("HOME")
+        .map(PathBuf::from)
+        .filter(|p| p.is_absolute())
     else {
         eprintln!("[config-migrate] sin HOME: no hay nada que migrar");
         return;
@@ -27,7 +31,10 @@ fn main() {
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from(migracion::SKEL));
     if !skel.is_dir() {
-        eprintln!("[config-migrate] no está {}: nada que hacer", skel.display());
+        eprintln!(
+            "[config-migrate] no está {}: nada que hacer",
+            skel.display()
+        );
         return;
     }
 
@@ -53,10 +60,10 @@ fn main() {
             );
         }
 
-        if r.agregadas.is_empty() && r.quitadas.is_empty() {
+        if r.agregadas.is_empty() && r.quitadas.is_empty() && r.reemplazadas.is_empty() {
             continue;
         }
-        cambios += r.agregadas.len() + r.quitadas.len();
+        cambios += r.agregadas.len() + r.quitadas.len() + r.reemplazadas.len();
 
         let donde = |seccion: &String, clave: &String| {
             if seccion == migracion::SECCION_DE_LINEA {
@@ -88,9 +95,27 @@ fn main() {
             );
         }
 
+        // Lo que cambió de valor. Se dice **de dónde a dónde**: es lo único de
+        // todo esto que toca una línea que ya estaba, así que quien lo lea tiene
+        // que poder volver atrás a mano sin ir a buscar qué decía antes.
+        let cambio = if prueba { "cambiaría" } else { "cambiado" };
+        for a in &r.reemplazadas {
+            eprintln!(
+                "[config-migrate] {cambio} en {}: {} de «{}» a «{}» (lo había puesto el paquete)",
+                r.archivo,
+                donde(&a.seccion, &a.clave),
+                a.anterior,
+                a.nuevo
+            );
+        }
+
         let que = if prueba { "agregaría" } else { "agregado" };
         for (seccion, clave) in &r.agregadas {
-            eprintln!("[config-migrate] {que} en {}: {}", r.archivo, donde(seccion, clave));
+            eprintln!(
+                "[config-migrate] {que} en {}: {}",
+                r.archivo,
+                donde(seccion, clave)
+            );
         }
     }
 
