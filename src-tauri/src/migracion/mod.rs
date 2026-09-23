@@ -41,6 +41,7 @@
 pub mod estado;
 pub mod ini;
 pub mod lineas;
+pub mod replacements;
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
@@ -83,6 +84,8 @@ pub struct Resultado {
     pub quitadas: Vec<ini::Quitada>,
     /// Atajos ligados a comandos distintos. Se informan; el archivo no cambia.
     pub conflictos: Vec<ini::Conflicto>,
+    /// Valores que puso el paquete y que el paquete cambió: ver `replacements`.
+    pub reemplazadas: Vec<replacements::Aplicado>,
     pub motivo: Option<String>,
 }
 
@@ -93,6 +96,7 @@ impl Resultado {
             agregadas: Vec::new(),
             quitadas: Vec::new(),
             conflictos: Vec::new(),
+            reemplazadas: Vec::new(),
             motivo: Some(motivo.to_string()),
         }
     }
@@ -108,17 +112,25 @@ pub struct Cambio {
     /// Atajos ligados a comandos distintos, que no se pueden resolver solos. Se
     /// informan y no cambian el archivo: ver `ini::quitar_choques`.
     pub conflictos: Vec<ini::Conflicto>,
+    /// Valores que puso el paquete y que el paquete cambió: ver `replacements`.
+    pub reemplazadas: Vec<replacements::Aplicado>,
 }
 
 /// Limpia y fusiona un archivo; devuelve el texto nuevo, o `None` si no hay nada
 /// que cambiar.
 ///
-/// Dos pasos, en este orden:
+/// Tres pasos, en este orden:
 ///
-/// 1. **Se retiran los atajos que puso la migración y que chocan** con uno que ya
-///    estaba. Va primero porque es reparar lo que ya pasó, y porque el registro de
-///    lo ofrecido es lo que dice cuáles son nuestros: ver `ini::quitar_choques`.
-/// 2. **Se agrega lo que falta**, que desde ahora ya no liga un atajo dos veces.
+/// 1. **Se reemplazan los valores que puso el paquete y que el paquete cambió**,
+///    y sólo ésos: ver `replacements`. Va primero para que los dos pasos que
+///    siguen vean el archivo ya actualizado — al revés, un atajo recién
+///    reemplazado no contaría al buscar choques, y el mismo combo podría quedar
+///    ligado dos veces.
+/// 2. **Se retiran los atajos que puso la migración y que chocan** con uno que ya
+///    estaba. Va antes de agregar porque es reparar lo que ya pasó, y porque el
+///    registro de lo ofrecido es lo que dice cuáles son nuestros: ver
+///    `ini::quitar_choques`.
+/// 3. **Se agrega lo que falta**, que desde ahora ya no liga un atajo dos veces.
 ///
 /// Retirar una clave no la desanota del registro: se ofreció una vez, resultó que
 /// chocaba, y no tiene por qué volver en el próximo arranque.
@@ -134,14 +146,16 @@ pub fn fusionar_texto(
     let ofrecida = |seccion: &str, clave: &str| {
         ya.contains(&(relativo.to_string(), seccion.to_string(), clave.to_string()))
     };
-    let limpieza = ini::quitar_choques(usuario, paquete, &ofrecida);
+    let (reemplazado, reemplazadas) = replacements::apply(relativo, usuario, ya);
+    let limpieza = ini::quitar_choques(&reemplazado, paquete, &ofrecida);
     let (texto, agregado) = ini::fusionar(&limpieza.texto, paquete, &ofrecida);
-    if agregado.claves.is_empty() && limpieza.quitadas.is_empty() {
+    if agregado.claves.is_empty() && limpieza.quitadas.is_empty() && reemplazadas.is_empty() {
         return Cambio {
             texto: None,
             agregadas: Vec::new(),
             quitadas: Vec::new(),
             conflictos: limpieza.conflictos,
+            reemplazadas: Vec::new(),
         };
     }
     Cambio {
@@ -149,6 +163,7 @@ pub fn fusionar_texto(
         agregadas: agregado.claves,
         quitadas: limpieza.quitadas,
         conflictos: limpieza.conflictos,
+        reemplazadas,
     }
 }
 
@@ -162,12 +177,7 @@ pub fn fusionar_texto(
 /// ataba la lógica a una variable de entorno del proceso, y con eso dos hogares
 /// distintos compartían registro — que es exactamente lo que hizo fallar una
 /// prueba y lo que en producción pasaría con dos sesiones anidadas.
-pub fn aplicar(
-    hogar: &Path,
-    skel: &Path,
-    ruta_estado: &Path,
-    escribir: bool,
-) -> Vec<Resultado> {
+pub fn aplicar(hogar: &Path, skel: &Path, ruta_estado: &Path, escribir: bool) -> Vec<Resultado> {
     // Un error al leer el registro **no** es un registro vacío.
     //
     // Con `unwrap_or_default()`, un `PermissionDenied` o un `EIO` se volvían un
@@ -204,14 +214,20 @@ pub fn aplicar(
             continue;
         };
 
-        let Cambio { texto, agregadas, quitadas, conflictos } =
-            fusionar_texto(relativo, &usuario, &paquete, &ya);
+        let Cambio {
+            texto,
+            agregadas,
+            quitadas,
+            conflictos,
+            reemplazadas,
+        } = fusionar_texto(relativo, &usuario, &paquete, &ya);
         let Some(nuevo) = texto else {
             resultados.push(Resultado {
                 archivo: relativo.to_string(),
                 agregadas: Vec::new(),
                 quitadas: Vec::new(),
                 conflictos,
+                reemplazadas: Vec::new(),
                 motivo: None,
             });
             continue;
@@ -219,11 +235,25 @@ pub fn aplicar(
 
         if escribir {
             if let Err(e) = escritura_atomica(&del_usuario, &nuevo) {
-                resultados.push(Resultado::saltado(relativo, &format!("no se pudo escribir: {e}")));
+                resultados.push(Resultado::saltado(
+                    relativo,
+                    &format!("no se pudo escribir: {e}"),
+                ));
                 continue;
             }
             for (seccion, clave) in &agregadas {
                 ya.insert((relativo.to_string(), seccion.clone(), clave.clone()));
+            }
+            // El reemplazo se anota igual que una clave ofrecida, y por el mismo
+            // motivo: quien después vuelva a poner el valor viejo a propósito se
+            // queda con él.
+            for r in replacements::REPLACEMENTS
+                .iter()
+                .filter(|r| r.archivo == relativo)
+            {
+                if reemplazadas.iter().any(|a| a.clave == r.clave) {
+                    ya.insert(replacements::marca(r));
+                }
             }
             hubo_cambios = true;
         }
@@ -233,6 +263,7 @@ pub fn aplicar(
             agregadas,
             quitadas,
             conflictos,
+            reemplazadas,
             motivo: None,
         });
     }
@@ -243,7 +274,10 @@ pub fn aplicar(
     for insercion in lineas::INSERCIONES {
         let del_usuario = hogar.join(insercion.archivo);
         let Ok(usuario) = std::fs::read_to_string(&del_usuario) else {
-            resultados.push(Resultado::saltado(insercion.archivo, "la cuenta no lo tiene"));
+            resultados.push(Resultado::saltado(
+                insercion.archivo,
+                "la cuenta no lo tiene",
+            ));
             continue;
         };
 
@@ -262,6 +296,7 @@ pub fn aplicar(
                 agregadas: Vec::new(),
                 quitadas: Vec::new(),
                 conflictos: Vec::new(),
+                reemplazadas: Vec::new(),
                 motivo: None,
             });
             continue;
@@ -284,6 +319,7 @@ pub fn aplicar(
             agregadas: vec![(SECCION_DE_LINEA.to_string(), insercion.marca.to_string())],
             quitadas: Vec::new(),
             conflictos: Vec::new(),
+            reemplazadas: Vec::new(),
             motivo: None,
         });
     }
@@ -337,16 +373,110 @@ mod tests {
         std::fs::write(ruta, contenido).unwrap();
     }
 
+    /// La terminal desplegable, de punta a punta: el caso que trajo todo esto.
+    ///
+    /// Una cuenta que ya existe tiene la desplegable en `KEY_F12`, que es donde la
+    /// dejó el paquete. El paquete nuevo la mudó a `<super> <alt> KEY_T` y agregó
+    /// una segunda combinación.
+    ///
+    /// Sin el reemplazo, esa cuenta terminaba con **las dos**: el F12 de antes,
+    /// que no se pisa nunca, y la combinación nueva, que entra como clave nueva.
+    /// O sea ni el estado viejo ni el nuevo.
+    #[test]
+    fn la_desplegable_se_muda_y_no_queda_ligada_dos_veces() {
+        let (hogar, skel, registro) = escenario("desplegable");
+        let suyo = "[command]\n\
+                    binding_terminal = <super> KEY_T\n\
+                    command_terminal = vasak-terminal\n\
+                    binding_terminal_overlay = KEY_F12\n\
+                    command_terminal_overlay = vasak-terminal --overlay\n";
+        let paquete = "[command]\n\
+                       binding_terminal = <super> KEY_T\n\
+                       command_terminal = vasak-terminal\n\
+                       binding_terminal_overlay = <super> <alt> KEY_T\n\
+                       command_terminal_overlay = vasak-terminal --overlay\n\
+                       binding_terminal_overlay_alt = <super> <ctrl> KEY_T\n\
+                       command_terminal_overlay_alt = vasak-terminal --overlay\n";
+        poner(&hogar, ".config/wayfire.ini", suyo);
+        poner(&skel, ".config/wayfire.ini", paquete);
+
+        aplicar(&hogar, &skel, &registro, true);
+        let despues = std::fs::read_to_string(hogar.join(".config/wayfire.ini")).unwrap();
+
+        assert!(
+            !despues.contains("KEY_F12"),
+            "quedó el atajo viejo: {despues}"
+        );
+        assert!(
+            despues.contains("binding_terminal_overlay = <super> <alt> KEY_T"),
+            "{despues}"
+        );
+        assert!(
+            despues.contains("binding_terminal_overlay_alt = <super> <ctrl> KEY_T"),
+            "{despues}"
+        );
+
+        // Y una segunda pasada no vuelve a tocar nada: el reemplazo quedó anotado.
+        let r2 = aplicar(&hogar, &skel, &registro, true);
+        assert!(
+            r2.iter()
+                .all(|x| x.reemplazadas.is_empty() && x.agregadas.is_empty()),
+            "{r2:?}"
+        );
+
+        // Ni siquiera si la persona vuelve a poner F12 a propósito, que es lo que
+        // el registro está para sostener.
+        poner(
+            &hogar,
+            ".config/wayfire.ini",
+            &despues.replace("<super> <alt> KEY_T", "KEY_F12"),
+        );
+        aplicar(&hogar, &skel, &registro, true);
+        let ultimo = std::fs::read_to_string(hogar.join(".config/wayfire.ini")).unwrap();
+        assert!(
+            ultimo.contains("KEY_F12"),
+            "se lo volvimos a cambiar: {ultimo}"
+        );
+
+        let _ = std::fs::remove_dir_all(hogar.parent().unwrap());
+    }
+
+    /// Y a quien la había movido no se le toca nada.
+    #[test]
+    fn la_desplegable_que_alguien_movio_se_queda_donde_esta() {
+        let (hogar, skel, registro) = escenario("desplegable-propia");
+        let suyo = "[command]\nbinding_terminal_overlay = KEY_F11\n\
+                    command_terminal_overlay = vasak-terminal --overlay\n";
+        let paquete = "[command]\nbinding_terminal_overlay = <super> <alt> KEY_T\n\
+                       command_terminal_overlay = vasak-terminal --overlay\n";
+        poner(&hogar, ".config/wayfire.ini", suyo);
+        poner(&skel, ".config/wayfire.ini", paquete);
+
+        aplicar(&hogar, &skel, &registro, true);
+        let despues = std::fs::read_to_string(hogar.join(".config/wayfire.ini")).unwrap();
+
+        assert!(despues.contains("KEY_F11"), "{despues}");
+        assert!(!despues.contains("<super> <alt> KEY_T"), "{despues}");
+        let _ = std::fs::remove_dir_all(hogar.parent().unwrap());
+    }
+
     #[test]
     fn el_modo_de_prueba_no_toca_nada() {
         // Es lo que permite ver qué haría antes de dejarlo suelto en cada inicio de
         // sesión.
         let (hogar, skel, registro) = escenario("prueba");
         poner(&hogar, ".config/wayfire.ini", "[animate]\nduration = 300\n");
-        poner(&skel, ".config/wayfire.ini", "[animate]\nduration = 150\nopen_animation = fade\n");
+        poner(
+            &skel,
+            ".config/wayfire.ini",
+            "[animate]\nduration = 150\nopen_animation = fade\n",
+        );
 
         let r = aplicar(&hogar, &skel, &registro, false);
-        let wayfire = r.iter().find(|x| x.archivo == ".config/wayfire.ini").unwrap();
+        let wayfire = r
+            .iter()
+            .find(|x| x.archivo == ".config/wayfire.ini")
+            .unwrap();
         assert_eq!(wayfire.agregadas.len(), 1);
 
         // El archivo sigue igual y no se creó el registro.
@@ -360,12 +490,22 @@ mod tests {
     fn aplicar_agrega_y_anota() {
         let (hogar, skel, registro) = escenario("aplicar");
         poner(&hogar, ".config/wayfire.ini", "[animate]\nduration = 300\n");
-        poner(&skel, ".config/wayfire.ini", "[animate]\nduration = 150\nopen_animation = fade\n");
+        poner(
+            &skel,
+            ".config/wayfire.ini",
+            "[animate]\nduration = 150\nopen_animation = fade\n",
+        );
 
         aplicar(&hogar, &skel, &registro, true);
         let despues = std::fs::read_to_string(hogar.join(".config/wayfire.ini")).unwrap();
-        assert!(despues.contains("duration = 300"), "el valor de la persona queda");
-        assert!(despues.contains("open_animation = fade"), "y lo nuevo entra");
+        assert!(
+            despues.contains("duration = 300"),
+            "el valor de la persona queda"
+        );
+        assert!(
+            despues.contains("open_animation = fade"),
+            "y lo nuevo entra"
+        );
 
         // Y una segunda pasada no vuelve a agregar nada.
         let r2 = aplicar(&hogar, &skel, &registro, true);
@@ -410,20 +550,30 @@ mod tests {
         .unwrap();
 
         let r = aplicar(&hogar, &skel, &registro, true);
-        let wayfire = r.iter().find(|x| x.archivo == ".config/wayfire.ini").unwrap();
+        let wayfire = r
+            .iter()
+            .find(|x| x.archivo == ".config/wayfire.ini")
+            .unwrap();
         assert_eq!(wayfire.quitadas.len(), 2, "{wayfire:?}");
 
         let despues = std::fs::read_to_string(hogar.join(".config/wayfire.ini")).unwrap();
         assert!(!despues.contains("binding_terminal"), "{despues}");
         assert!(!despues.contains("command_terminal"), "{despues}");
         // Y lo de la persona sigue ahí: acá se retira lo nuestro, no lo suyo.
-        assert!(despues.contains("binding_custom_0 = KEY_T <super>"), "{despues}");
+        assert!(
+            despues.contains("binding_custom_0 = KEY_T <super>"),
+            "{despues}"
+        );
 
         // La clave sigue anotada, así que no vuelve en el próximo arranque.
         let anotado = std::fs::read_to_string(&registro).unwrap();
         assert!(anotado.contains("binding_terminal"), "{anotado}");
         let otra = aplicar(&hogar, &skel, &registro, true);
-        assert!(otra.iter().all(|x| x.agregadas.is_empty() && x.quitadas.is_empty()), "{otra:?}");
+        assert!(
+            otra.iter()
+                .all(|x| x.agregadas.is_empty() && x.quitadas.is_empty()),
+            "{otra:?}"
+        );
         let _ = std::fs::remove_dir_all(hogar.parent().unwrap());
     }
 
@@ -433,7 +583,11 @@ mod tests {
         // para siempre con una opción que alguien sacó.
         let (hogar, skel, registro) = escenario("borrado");
         poner(&hogar, ".config/wayfire.ini", "[animate]\nduration = 300\n");
-        poner(&skel, ".config/wayfire.ini", "[animate]\nduration = 150\nopen_animation = fade\n");
+        poner(
+            &skel,
+            ".config/wayfire.ini",
+            "[animate]\nduration = 150\nopen_animation = fade\n",
+        );
 
         aplicar(&hogar, &skel, &registro, true);
 
@@ -465,8 +619,14 @@ mod tests {
         poner(&hogar, ".config/wayfire.ini", "[core]\nplugins = expo\n");
 
         let r = aplicar(&hogar, &skel, &registro, true);
-        let wayfire = r.iter().find(|x| x.archivo == ".config/wayfire.ini").unwrap();
-        assert!(wayfire.motivo.as_deref() == Some("el paquete no lo trae"), "{wayfire:?}");
+        let wayfire = r
+            .iter()
+            .find(|x| x.archivo == ".config/wayfire.ini")
+            .unwrap();
+        assert!(
+            wayfire.motivo.as_deref() == Some("el paquete no lo trae"),
+            "{wayfire:?}"
+        );
         let _ = std::fs::remove_dir_all(hogar.parent().unwrap());
     }
 
@@ -476,7 +636,11 @@ mod tests {
         // haber llegado jamás: el peor de los dos mundos.
         let (hogar, skel, registro) = escenario("no-anota");
         poner(&hogar, ".config/wayfire.ini", "[animate]\nduration = 300\n");
-        poner(&skel, ".config/wayfire.ini", "[animate]\nopen_animation = fade\n");
+        poner(
+            &skel,
+            ".config/wayfire.ini",
+            "[animate]\nopen_animation = fade\n",
+        );
 
         aplicar(&hogar, &skel, &registro, false);
         assert!(!registro.exists());
@@ -495,7 +659,11 @@ mod tests {
         // suelto, que es la señal de que el renombrado se hizo.
         let (hogar, skel, registro) = escenario("atomica");
         poner(&hogar, ".config/wayfire.ini", "[animate]\nduration = 300\n");
-        poner(&skel, ".config/wayfire.ini", "[animate]\nopen_animation = fade\n");
+        poner(
+            &skel,
+            ".config/wayfire.ini",
+            "[animate]\nopen_animation = fade\n",
+        );
 
         aplicar(&hogar, &skel, &registro, true);
         let sobrantes: Vec<_> = std::fs::read_dir(hogar.join(".config"))
@@ -539,8 +707,14 @@ mod tests {
 
         aplicar(&hogar, &skel, &registro, true);
         let despues = std::fs::read_to_string(hogar.join(".zshrc")).unwrap();
-        assert!(despues.contains("/usr/share/vasak/shell/zshrc"), "{despues}");
-        assert!(despues.contains("export EDITOR=vim"), "no se perdió lo suyo");
+        assert!(
+            despues.contains("/usr/share/vasak/shell/zshrc"),
+            "{despues}"
+        );
+        assert!(
+            despues.contains("export EDITOR=vim"),
+            "no se perdió lo suyo"
+        );
         let _ = std::fs::remove_dir_all(hogar.parent().unwrap());
     }
 
@@ -555,7 +729,10 @@ mod tests {
 
         aplicar(&hogar, &skel, &registro, true);
         let despues = std::fs::read_to_string(hogar.join(".zshrc")).unwrap();
-        assert!(!despues.contains("/usr/share/vasak/shell/zshrc"), "volvió: {despues}");
+        assert!(
+            !despues.contains("/usr/share/vasak/shell/zshrc"),
+            "volvió: {despues}"
+        );
         let _ = std::fs::remove_dir_all(hogar.parent().unwrap());
     }
 
@@ -583,7 +760,11 @@ mod tests {
         // agregar: lo contrario de lo que este módulo promete.
         let (hogar, skel, _) = escenario("registro-ilegible");
         poner(&hogar, ".config/wayfire.ini", "[animate]\nduration = 300\n");
-        poner(&skel, ".config/wayfire.ini", "[animate]\nopen_animation = fade\n");
+        poner(
+            &skel,
+            ".config/wayfire.ini",
+            "[animate]\nopen_animation = fade\n",
+        );
 
         // Un directorio donde va el archivo: leerlo da `IsADirectory`, no
         // `NotFound`, que es lo que distingue «primera vez» de «algo anda mal».
@@ -592,7 +773,8 @@ mod tests {
 
         let r = aplicar(&hogar, &skel, &registro, true);
         assert!(
-            r.iter().any(|x| x.motivo.as_deref().is_some_and(|m| m.contains("registro"))),
+            r.iter()
+                .any(|x| x.motivo.as_deref().is_some_and(|m| m.contains("registro"))),
             "{r:?}"
         );
         // Y el archivo quedó intacto.
@@ -607,7 +789,11 @@ mod tests {
         // aplicar.
         let (hogar, skel, registro) = escenario("primera-vez");
         poner(&hogar, ".config/wayfire.ini", "[animate]\nduration = 300\n");
-        poner(&skel, ".config/wayfire.ini", "[animate]\nopen_animation = fade\n");
+        poner(
+            &skel,
+            ".config/wayfire.ini",
+            "[animate]\nopen_animation = fade\n",
+        );
         assert!(!registro.exists());
 
         aplicar(&hogar, &skel, &registro, true);
