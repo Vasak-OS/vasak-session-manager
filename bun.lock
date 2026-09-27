@@ -7,9 +7,9 @@
       "dependencies": {
         "@tailwindcss/vite": "^4.3.3",
         "@tauri-apps/api": "^2.11.1",
-        "@vasakgroup/plugin-config-manager": "^2.7.1",
-        "@vasakgroup/plugin-vicons": "^2.2.2",
-        "@vasakgroup/tauri-plugin-i18n": "^2.3.1",
+        "@vasakgroup/plugin-config-manager": "^2.7.0",
+        "@vasakgroup/plugin-vicons": "^2.2.1",
+        "@vasakgroup/tauri-plugin-i18n": "^2.3.0",
         "pinia": "^4.0.3",
         "vue": "^3.5.43",
       },
