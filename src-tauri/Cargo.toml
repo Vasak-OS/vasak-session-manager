@@ -1,6 +1,6 @@
 [package]
 name = "vasak-session-manager"
-version = "0.7.1"
+version = "0.7.2"
 description = "VasakOS session manager (display manager / greeter)"
 authors = ["Vasak Group", "Joaquin (Pato) Decima"]
 edition = "2021"
@@ -38,11 +38,11 @@ tauri-build = { version = "2", features = [] }
 [dependencies]
 # Los directorios base del estándar: la regla de que una variable relativa o
 # vacía se ignora vive ahí y no en una copia acá.
-dirs = "6"
+dirs = "7"
 tauri = { version = "2", features = [] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-base64 = "0.22"
+base64 = "0.23"
 libc = "0.2.189"
 tauri-plugin-i18n-vsk = "2.1.1"
 tauri-plugin-config-manager = "2"
@@ -56,7 +56,7 @@ zeroize = "1"
 # Para leer las notificaciones sin leer y el reproductor. La API bloqueante
 # alcanza —son tres consultas puntuales, no un flujo— y así no entra un runtime
 # asíncrono entero en una pantalla que tiene que arrancar rápido.
-zbus = { version = "4", default-features = false, features = ["blocking", "async-io"] }
+zbus = { version = "5", default-features = false, features = ["blocking-api", "async-io"] }
 
 [profile.dev]
 incremental = true # Compile your binary in smaller steps.
