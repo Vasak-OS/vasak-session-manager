@@ -123,7 +123,7 @@ onMounted(load);
       class="@container absolute overflow-x-hidden overflow-y-auto transition-all duration-300 ease-ui-out"
       :style="loginArea"
     >
-      <div class="flex min-h-full flex-col items-center justify-center gap-10 p-6">
+      <div class="flex min-h-full flex-col items-center justify-center gap-10 p-2 @xs:p-6">
         <GreeterClock />
 
         <!-- La tarjeta va translúcida y desenfoca el fondo que tiene detrás:
@@ -134,7 +134,7 @@ onMounted(load);
              otra. -->
         <div
           data-surface="card"
-          class="flex w-full max-w-4xl min-w-0 flex-col gap-8 rounded-corner-xl border border-ui-line bg-ui-shell p-4 shadow-surface-l backdrop-blur-md @xs:p-8 @min-[45rem]:flex-row"
+          class="flex w-full max-w-4xl min-w-0 flex-col gap-8 rounded-corner-xl border border-ui-line bg-ui-shell p-2 shadow-surface-l shell-blur @xs:p-8 @min-[45rem]:flex-row"
         >
           <!-- Accounts. Hidden when there is nobody to choose between, so a
                single-user machine goes straight to the password. -->

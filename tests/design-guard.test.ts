@@ -33,9 +33,10 @@
  * - **La forma de Once UI**: ni las sombras de Tailwind (que además traen su
  *   negro fijo), ni escalas, giros o desplazamientos al pasar o al apretar, ni
  *   duraciones fuera de 100, 150, 200 y 300 ms.
- * - **El desenfoque detrás (`backdrop-blur`) es la excepción de esta
- *   aplicación**, y sólo en los archivos que dibujan las superficies sobre el
- *   fondo de pantalla (`BLUR_ALLOWED`). En el resto del taller lo pone Wayfire
+ * - **El desenfoque detrás es la excepción de esta aplicación**: `shell-blur`
+ *   (de vue-libvasak 2.4.0), y sólo en los archivos que dibujan las superficies
+ *   sobre el fondo de pantalla (`BLUR_ALLOWED`). `backdrop-blur` suelto no va
+ *   en ningún lado: el desenfoque es el que define la librería. En el resto del taller lo pone Wayfire
  *   detrás de la superficie; el saludo y la pantalla de bloqueo son pantallas
  *   completas sin nada de Wayfire detrás, así que lo pone la página (decisión
  *   del usuario, 02/10/2026). Lo que exige que esté, y que esas superficies
@@ -412,9 +413,17 @@ describe('lo que la forma de Once UI deja afuera', () => {
 		expect(found).toEqual([]);
 	});
 
-	test('el desenfoque detrás sólo en las superficies sobre el fondo de pantalla', async () => {
+	test('ningún backdrop-blur suelto: el desenfoque es el `shell-blur` de la librería', async () => {
+		expect(await findAll(sources('**/*.{vue,ts,css}'), /backdrop-blur/g)).toEqual([]);
+	});
+
+	test('y `shell-blur` sólo en las superficies sobre el fondo de pantalla', async () => {
 		const files = sources('**/*.{vue,ts,css}').filter((file) => !BLUR_ALLOWED.includes(file));
-		expect(await findAll(files, /backdrop-blur/g)).toEqual([]);
+		expect(await findAll(files, /(?<![\w-])shell-blur(?![\w-])/g)).toEqual([]);
+	});
+
+	test('`shell-blur` existe en la librería instalada', async () => {
+		expect(await Bun.file(LIBRARY_TOKENS).text()).toMatch(/@utility shell-blur\s*\{[^}]*backdrop-filter:\s*blur\(/);
 	});
 
 	test('y la lista de la excepción nombra archivos que existen', () => {

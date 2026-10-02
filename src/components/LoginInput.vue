@@ -6,6 +6,7 @@ import {
   ActionButton,
   AlertMessage,
   FormGroup,
+  PasswordField,
   TextInput,
 } from "@vasakgroup/vue-libvasak";
 import { useGreeter } from "@/composables/useGreeter";
@@ -23,7 +24,6 @@ const {
 const password = ref("");
 const error = ref("");
 const loading = ref(false);
-const capsLock = ref(false);
 
 /** Los campos de la librería exponen `focus()`, que dice si llegó. */
 type FocusableField = { focus: () => boolean };
@@ -40,12 +40,6 @@ const keyboardHint = computed(() =>
  * the mouse first — the whole screen exists to accept one password. */
 const focusEntry = async () => {
   await nextTick();
-  // TODO(2.4.0): `TextInput` no declara `spellcheck` ni `autocapitalize`, y con
-  // `strictTemplates` no se pueden pasar. Un nombre de cuenta no es una palabra:
-  // sin esto el corrector lo subraya y el teclado en pantalla le pone mayúscula.
-  const name = document.getElementById("username-field");
-  name?.setAttribute("spellcheck", "false");
-  name?.setAttribute("autocapitalize", "none");
   if (usingManualEntry.value && !manualUsername.value) {
     usernameField.value?.focus();
   } else {
@@ -57,15 +51,6 @@ onMounted(focusEntry);
 watch(usingManualEntry, focusEntry);
 
 /**
- * Caps Lock is the single most common reason a correct password is rejected,
- * and a password field gives no other clue. Read on every key event, including
- * the key press that toggles it.
- */
-const updateCapsLock = (event: KeyboardEvent) => {
-  capsLock.value = event.getModifierState("CapsLock");
-};
-
-/**
  * Escape borra lo escrito en la contraseña, como en cualquier pantalla de
  * inicio: es la forma de empezar de nuevo sin borrar letra por letra algo que
  * no se ve. No envía nada y el foco se queda en el campo.
@@ -75,11 +60,6 @@ const clearPassword = (event: KeyboardEvent) => {
   event.preventDefault();
   password.value = "";
   error.value = "";
-};
-
-const onPasswordKey = (event: KeyboardEvent) => {
-  updateCapsLock(event);
-  clearPassword(event);
 };
 
 const login = async () => {
@@ -145,31 +125,31 @@ const login = async () => {
         ref="usernameField"
         v-model="manualUsername"
         autocomplete="off"
+        autocapitalize="none"
+        :spellcheck="false"
         :placeholder="t('login.usernamePlaceholder')"
       />
     </FormGroup>
 
-    <!-- TODO(2.4.0): el campo de contraseña con «mostrar» pasa a la librería.
-         Bloq Mayús va como ayuda del campo: se ve debajo y además se anuncia al
-         llegar al campo, que es cuando sirve. -->
+    <!-- El campo de la librería trae el botón de mostrar y el aviso de Bloq
+         Mayús, que es la razón más común de que una contraseña correcta se
+         rechace; el aviso queda atado al campo (`aria-describedby`). -->
     <FormGroup
       :label="t('login.password')"
       variant="eyebrow"
       html-for="password-field"
-      :help="capsLock ? t('login.capsLock') : ''"
       v-slot="{ id, describedBy }"
     >
-      <TextInput
+      <PasswordField
         :id="id"
         ref="passwordField"
         v-model="password"
-        type="password"
         autocomplete="current-password"
         :placeholder="t('login.passwordPlaceholder')"
+        :caps-lock-label="t('login.capsLock')"
         :invalid="Boolean(error)"
         :described-by="[describedBy, error ? 'login-error' : ''].filter(Boolean).join(' ') || undefined"
-        @keydown="onPasswordKey"
-        @keyup="updateCapsLock"
+        @keydown="clearPassword"
       />
     </FormGroup>
 

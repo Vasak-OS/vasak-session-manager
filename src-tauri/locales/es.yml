@@ -20,7 +20,11 @@ login:
   passwordRequired: Escribí tu contraseña
   sessionRequired: Elegí una sesión
 
+password:
+  show: Mostrar la contraseña
+  hide: Ocultar la contraseña
 power:
+  title: Energía
   suspend: Suspender
   reboot: Reiniciar
   poweroff: Apagar

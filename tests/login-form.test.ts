@@ -175,6 +175,31 @@ describe('los errores se ven y se anuncian', () => {
 });
 
 describe('el teclado', () => {
+	test('el botón de mostrar deja ver lo escrito y lo vuelve a tapar', async () => {
+		await open();
+		await type('secreta');
+		const reveal = document.querySelector<HTMLButtonElement>('[aria-controls="password-field"]');
+		reveal?.click();
+		await flushPromises();
+		expect(passwordField().type).toBe('text');
+		expect(reveal?.getAttribute('aria-pressed')).toBe('true');
+		reveal?.click();
+		await flushPromises();
+		expect(passwordField().type).toBe('password');
+	});
+
+	test('con Bloq Mayús el campo lo avisa con el texto de la app, atado al campo', async () => {
+		await open();
+		const event = new KeyboardEvent('keydown', { key: 'A', bubbles: true, cancelable: true });
+		Object.defineProperty(event, 'getModifierState', { value: (name: string) => name === 'CapsLock' });
+		passwordField().dispatchEvent(event);
+		await flushPromises();
+
+		const hint = document.querySelector('[data-caps-lock]');
+		expect(hint?.textContent).toContain('login.capsLock');
+		expect(passwordField().getAttribute('aria-describedby')).toContain(hint?.id ?? '-');
+	});
+
 	test('Escape borra lo escrito, no envía y deja el foco en el campo', async () => {
 		await open();
 		await type('a medias');
@@ -197,11 +222,13 @@ describe('el teclado', () => {
 
 		// Nadie se queda con el Tab: el navegador lo lleva al siguiente.
 		expect(event.defaultPrevented).toBe(false);
-		// Y el siguiente existe y se puede alcanzar: el botón de entrar.
+		// Y lo que sigue se puede alcanzar: el botón de mostrar la contraseña y
+		// después el de entrar.
 		const focusables = [...document.querySelectorAll<HTMLElement>('input, button, [tabindex]')].filter(
 			(element) => !(element as HTMLButtonElement).disabled && element.tabIndex >= 0
 		);
-		const after = focusables[focusables.indexOf(passwordField()) + 1];
-		expect(after?.getAttribute('type')).toBe('submit');
+		const next = focusables.slice(focusables.indexOf(passwordField()) + 1);
+		expect(next[0]?.getAttribute('aria-controls')).toBe('password-field');
+		expect(next[1]?.getAttribute('type')).toBe('submit');
 	});
 });

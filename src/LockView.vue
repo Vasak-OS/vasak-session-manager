@@ -9,7 +9,7 @@ import {
   Badge,
   FormGroup,
   IconTile,
-  TextInput,
+  PasswordField,
 } from "@vasakgroup/vue-libvasak";
 import { nextTick, onMounted, ref } from "vue";
 import GreeterClock from "@/components/GreeterClock.vue";
@@ -24,7 +24,6 @@ const user = ref("");
 const password = ref("");
 const error = ref("");
 const working = ref(false);
-const capsLock = ref(false);
 const background = ref<string | null>(null);
 const avatar = ref<string | null>(null);
 /** El campo de la librería expone `focus()`, que dice si llegó. */
@@ -57,18 +56,12 @@ onMounted(async () => {
   });
 });
 
-/** Caps Lock is the most common reason a correct password is rejected. */
-const updateCapsLock = (event: KeyboardEvent) => {
-  capsLock.value = event.getModifierState("CapsLock");
-};
-
 /**
  * Escape borra lo escrito, como en cualquier pantalla de bloqueo: es la forma
  * de empezar de nuevo sin borrar letra por letra algo que no se ve. No envía
  * nada y el foco se queda en el campo.
  */
 const onKey = (event: KeyboardEvent) => {
-  updateCapsLock(event);
   if (event.key !== "Escape") return;
   event.preventDefault();
   password.value = "";
@@ -152,7 +145,7 @@ const submit = async () => {
             v-for="entry in notifications"
             :key="entry.app"
             data-surface="notifications"
-            class="relative inline-flex rounded-corner-m backdrop-blur-md"
+            class="relative inline-flex rounded-corner-m shell-blur"
             :title="notificationsLabel(entry.count, entry.app)"
           >
             <IconTile
@@ -166,7 +159,7 @@ const submit = async () => {
               class="absolute -top-1 -right-1"
               aria-hidden="true"
             >
-              <Badge variant="solid" tone="accent" :label="entry.count" />
+              <Badge counter variant="solid" tone="accent" :label="entry.count" :max="99" />
             </span>
           </li>
         </ul>
@@ -174,50 +167,41 @@ const submit = async () => {
         <form
           v-if="showsForm"
           data-surface="lock-card"
-          class="relative flex w-full max-w-md min-w-0 flex-col gap-4 rounded-corner-xl border border-ui-line bg-ui-shell px-4 pt-14 pb-8 shadow-surface-l backdrop-blur-md @xs:px-8"
+          class="relative flex w-full max-w-md min-w-0 flex-col gap-4 rounded-corner-xl border border-ui-line bg-ui-shell px-4 pt-14 pb-8 shadow-surface-l shell-blur @xs:px-8"
           @submit.prevent="submit"
         >
           <!-- La foto sobresale por encima del borde: es lo que dice de quién
                es esta sesión, sin necesidad de escribir el nombre. El aro es
-               del fondo de la ventana, para despegarla de la tarjeta.
-               `!size-full`: 96 como antes (la 2.3 llega a 64). -->
+               del fondo de la ventana, para despegarla de la tarjeta; va como
+               contorno para no sumarle tamaño a los 96 de la foto. -->
           <span
-            class="absolute -top-12 left-1/2 flex size-24 -translate-x-1/2 rounded-corner-full border-4 border-ui-bg bg-ui-surface shadow-surface-m"
+            class="absolute -top-12 left-1/2 flex -translate-x-1/2 rounded-corner-full bg-ui-surface shadow-surface-m outline-4 outline-ui-bg"
           >
-            <Avatar
-              :src="avatar"
-              :name="user"
-              alt=""
-              size="xl"
-              class="!size-full !text-3xl"
-            />
+            <Avatar :src="avatar" :name="user" alt="" size="2xl" />
           </span>
 
           <h1 class="text-center text-heading-s font-semibold text-tx-main">
             {{ t("lock.title") }}
           </h1>
 
-          <!-- TODO(2.4.0): el campo de contraseña con «mostrar» pasa a la
-               librería. Bloq Mayús va como ayuda del campo: se ve debajo y se
-               anuncia al llegar al campo. -->
+          <!-- El campo de la librería trae el botón de mostrar y el aviso de
+               Bloq Mayús, atado al campo (`aria-describedby`). -->
           <FormGroup
             :label="t('lock.password')"
             variant="eyebrow"
             html-for="lock-password"
-            :help="capsLock ? t('lock.capsLock') : ''"
             v-slot="{ id, describedBy }"
           >
-            <TextInput
+            <PasswordField
               :id="id"
               ref="field"
               v-model="password"
-              type="password"
               autocomplete="current-password"
               :disabled="working"
+              :caps-lock-label="t('lock.capsLock')"
               :invalid="Boolean(error)"
               :described-by="[describedBy, error ? 'lock-error' : ''].filter(Boolean).join(' ') || undefined"
               @keydown="onKey"
-              @keyup="updateCapsLock"
             />
           </FormGroup>
 
@@ -244,7 +228,7 @@ const submit = async () => {
         <div
           v-if="showsForm && playback"
           data-surface="player"
-          class="flex w-full max-w-md min-w-0 items-center gap-3 rounded-corner-l border border-ui-line bg-ui-shell px-4 py-2 shadow-surface-s backdrop-blur-md"
+          class="flex w-full max-w-md min-w-0 items-center gap-3 rounded-corner-l border border-ui-line bg-ui-shell px-4 py-2 shadow-surface-s shell-blur"
         >
           <div class="min-w-0 flex-1">
             <p class="truncate text-label-m text-tx-main" :title="playback.title">

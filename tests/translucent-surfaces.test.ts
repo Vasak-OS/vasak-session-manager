@@ -13,7 +13,8 @@
  * dejan ver la foto borrosa detrás.
  *
  * Así que esta prueba pide las dos cosas a la vez: que cada superficie deje ver
- * lo de atrás (`ui-shell` o un fondo con opacidad) **y** que lo desenfoque. Lo
+ * lo de atrás (`ui-shell` o un fondo con opacidad) **y** que lo desenfoque con
+ * `shell-blur`, el desenfoque de vue-libvasak 2.4.0 permitido sólo acá. Lo
  * que flota **dentro** de la tarjeta (la lista de sesiones) sigue opaco, con
  * `ui-float`, como cualquier desplegable del sistema.
  */
@@ -23,6 +24,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { flushPromises, mount } from '@vue/test-utils';
 import LoginInput from '../src/components/LoginInput.vue';
+import SessionSelector from '../src/components/SessionSelector.vue';
 import { useGreeter } from '../src/composables/useGreeter';
 
 const ROOT = join(import.meta.dir, '..');
@@ -81,7 +83,7 @@ function surfaceProblems(classes: string, needsBackground = true): string[] {
 	for (const background of backgrounds) {
 		if (!isTranslucent(background)) problems.push(`opaco: bg-${background}`);
 	}
-	if (!/(?<![\w:-])backdrop-blur(?:-[a-z0-9]+)?(?![\w-])/.test(classes)) problems.push('sin backdrop-blur');
+	if (!/(?<![\w:-])shell-blur(?![\w-])/.test(classes)) problems.push('sin shell-blur');
 	return problems;
 }
 
@@ -98,7 +100,7 @@ const SURFACES: Array<[string, string, boolean]> = [
 
 describe('las superficies sobre el fondo de pantalla dejan verlo, desenfocado', () => {
 	for (const [file, name, needsBackground] of SURFACES) {
-		test(`${name} (${file.replace('src/', '')}) es translúcida y con backdrop-blur`, () => {
+		test(`${name} (${file.replace('src/', '')}) es translúcida y con shell-blur`, () => {
 			expect(surfaceProblems(surfaceClasses(file, name), needsBackground)).toEqual([]);
 		});
 	}
@@ -129,10 +131,20 @@ describe('las superficies sobre el fondo de pantalla dejan verlo, desenfocado', 
 		expect(backgroundsOf(neutral).every(isTranslucent)).toBe(true);
 	});
 
-	test('lo que flota dentro de la tarjeta va opaco: la lista de sesiones', () => {
-		const list = template('src/components/SessionSelector.vue').match(/<div\b[^>]*id="session-list"[^>]*>/)?.[0] ?? '';
-		expect(backgroundsOf(list)).toEqual(['ui-float']);
-		expect(list).not.toMatch(/backdrop-blur/);
+	test('lo que flota dentro de la tarjeta va opaco: la lista de sesiones', async () => {
+		const greeter = useGreeter();
+		const session = (id: string) => ({ id, name: id, comment: '', exec: id, path: '', session_type: 'wayland', desktop_names: [] });
+		greeter.sessions.value = [session('a'), session('b')];
+		greeter.selectedSession.value = greeter.sessions.value[0] ?? null;
+		const wrapper = mount(SessionSelector, { attachTo: document.body });
+		await wrapper.find('button').trigger('click');
+		await flushPromises();
+		const popup = wrapper.find('[role="listbox"]').element.parentElement as HTMLElement;
+		const classes = popup.getAttribute('class') ?? '';
+		expect(backgroundsOf(classes)).toEqual(['ui-float']);
+		expect(classes).not.toMatch(/blur/);
+		wrapper.unmount();
+		document.body.innerHTML = '';
 	});
 
 	test('ui-shell existe y es translúcida en la librería instalada', () => {
@@ -145,17 +157,19 @@ describe('las superficies sobre el fondo de pantalla dejan verlo, desenfocado', 
 
 describe('la guardia de translucidez ve lo que falta cuando falta', () => {
 	test('rechaza lo opaco y lo que no desenfoca', () => {
-		expect(surfaceProblems('bg-ui-bg border backdrop-blur-md')).toEqual(['opaco: bg-ui-bg']);
-		expect(surfaceProblems('bg-ui-shell rounded-corner-xl')).toEqual(['sin backdrop-blur']);
-		expect(surfaceProblems('bg-ui-shell !bg-[#fff] backdrop-blur-md')).toEqual(['opaco: bg-[#fff]']);
-		expect(surfaceProblems('rounded-corner-xl backdrop-blur-md')).toHaveLength(1);
+		expect(surfaceProblems('bg-ui-bg border shell-blur')).toEqual(['opaco: bg-ui-bg']);
+		expect(surfaceProblems('bg-ui-shell rounded-corner-xl')).toEqual(['sin shell-blur']);
+		expect(surfaceProblems('bg-ui-shell !bg-[#fff] shell-blur')).toEqual(['opaco: bg-[#fff]']);
+		expect(surfaceProblems('rounded-corner-xl shell-blur')).toHaveLength(1);
 		// Un desenfoque sólo al pasar el puntero no cuenta.
-		expect(surfaceProblems('bg-ui-shell hover:backdrop-blur-md')).toEqual(['sin backdrop-blur']);
+		expect(surfaceProblems('bg-ui-shell hover:shell-blur')).toEqual(['sin shell-blur']);
 	});
 
 	test('y deja pasar las superficies translúcidas con desenfoque', () => {
-		expect(surfaceProblems('bg-ui-shell backdrop-blur-md rounded-corner-xl')).toEqual([]);
-		expect(surfaceProblems('bg-ui-bg/80 backdrop-blur hover:bg-ui-hover')).toEqual([]);
-		expect(surfaceProblems('rounded-corner-m backdrop-blur-md', false)).toEqual([]);
+		expect(surfaceProblems('bg-ui-shell shell-blur rounded-corner-xl')).toEqual([]);
+		expect(surfaceProblems('bg-ui-bg/80 shell-blur hover:bg-ui-hover')).toEqual([]);
+		// Un `backdrop-blur` suelto no es el desenfoque de la librería.
+		expect(surfaceProblems('bg-ui-shell backdrop-blur-md')).toEqual(['sin shell-blur']);
+		expect(surfaceProblems('rounded-corner-m shell-blur', false)).toEqual([]);
 	});
 });

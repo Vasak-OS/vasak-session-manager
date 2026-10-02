@@ -164,7 +164,10 @@ describe('el teclado', () => {
 		const focusables = [...document.querySelectorAll<HTMLElement>('input, button, [tabindex]')].filter(
 			(element) => !(element as HTMLButtonElement).disabled && element.tabIndex >= 0
 		);
-		expect(focusables[focusables.indexOf(field()) + 1]?.getAttribute('type')).toBe('submit');
+		const next = focusables.slice(focusables.indexOf(field()) + 1);
+		// El botón de mostrar la contraseña y después el de desbloquear.
+		expect(next[0]?.getAttribute('aria-controls')).toBe('lock-password');
+		expect(next[1]?.getAttribute('type')).toBe('submit');
 	});
 });
 

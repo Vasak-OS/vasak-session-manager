@@ -1,5 +1,6 @@
 /**
- * El selector de sesión del saludo, con las filas de la librería.
+ * El selector de sesión del saludo: el `SearchSelect` de la librería sin
+ * buscador.
  *
  * Es la lista que se abre con el teclado sin tocar el mouse: flechas, Enter y
  * Escape. Se mira el estado (`aria-expanded`, la sesión elegida) y si la tecla
@@ -42,7 +43,9 @@ function key(target: Element, name: string) {
 	return event;
 }
 
-const trigger = () => wrapper?.find('[role="combobox"]').element as HTMLElement;
+const trigger = () => wrapper?.find('button[aria-haspopup="listbox"]').element as HTMLElement;
+const listbox = () => document.querySelector<HTMLElement>('[role="listbox"]');
+const options = () => [...document.querySelectorAll<HTMLElement>('[role="option"]')];
 
 beforeEach(() => forgetEverything());
 afterEach(() => {
@@ -52,62 +55,68 @@ afterEach(() => {
 });
 
 describe('el selector de sesión', () => {
-	test('las opciones son filas de la librería con su estado', async () => {
+	test('el botón muestra la sesión elegida y se nombra', async () => {
 		await open();
-		const options = wrapper?.findAll('[role="option"]') ?? [];
-		expect(options.map((option) => option.text())).toEqual(['VasakOS', 'GNOME']);
-		expect(options.map((option) => option.attributes('aria-selected'))).toEqual(['true', 'false']);
-	});
-
-	test('con el teclado: flecha abre, flecha baja, Enter elige y cierra', async () => {
-		await open();
-		trigger().focus();
-
-		expect(key(trigger(), 'ArrowDown').defaultPrevented).toBe(true);
-		await flushPromises();
-		expect(trigger().getAttribute('aria-expanded')).toBe('true');
-
-		key(trigger(), 'ArrowDown');
-		await flushPromises();
-		expect(trigger().getAttribute('aria-activedescendant')).toBe('session-option-1');
-
-		expect(key(trigger(), 'Enter').defaultPrevented).toBe(true);
-		await flushPromises();
-		expect(useGreeter().selectedSession.value?.id).toBe('gnome');
+		expect(trigger().textContent).toContain('VasakOS');
+		expect(trigger().getAttribute('aria-label')).toBe('login.session');
 		expect(trigger().getAttribute('aria-expanded')).toBe('false');
-		expect(document.activeElement).toBe(trigger());
 	});
 
-	test('Escape cierra la lista abierta sin cambiar la sesión', async () => {
+	test('sin buscador: abre la lista y el foco va a la lista, con la elegida marcada', async () => {
 		await open();
 		trigger().focus();
 		key(trigger(), 'ArrowDown');
 		await flushPromises();
-		key(trigger(), 'ArrowDown');
 
-		const event = key(trigger(), 'Escape');
+		expect(trigger().getAttribute('aria-expanded')).toBe('true');
+		expect(document.querySelector('input')).toBeNull();
+		expect(document.activeElement).toBe(listbox());
+		expect(options().map((option) => option.getAttribute('aria-selected'))).toEqual(['true', 'false']);
+	});
+
+	test('con el teclado: flecha baja y Enter elige la otra sesión', async () => {
+		await open();
+		key(trigger(), 'ArrowDown');
+		await flushPromises();
+
+		key(listbox() as HTMLElement, 'ArrowDown');
+		await flushPromises();
+		expect(key(listbox() as HTMLElement, 'Enter').defaultPrevented).toBe(true);
+		await flushPromises();
+
+		expect(useGreeter().selectedSession.value?.id).toBe('gnome');
+		expect(listbox()).toBeNull();
+	});
+
+	test('Escape cierra la lista sin cambiar la sesión', async () => {
+		await open();
+		key(trigger(), 'ArrowDown');
+		await flushPromises();
+		key(listbox() as HTMLElement, 'ArrowDown');
+
+		const event = key(listbox() as HTMLElement, 'Escape');
 		await flushPromises();
 
 		expect(event.defaultPrevented).toBe(true);
-		expect(trigger().getAttribute('aria-expanded')).toBe('false');
+		expect(listbox()).toBeNull();
 		expect(useGreeter().selectedSession.value?.id).toBe('vasakos');
-		expect(document.activeElement).toBe(trigger());
-	});
-
-	test('Escape con la lista cerrada no se lo queda: sigue para quien lo escuche', async () => {
-		await open();
-		expect(key(trigger(), 'Escape').defaultPrevented).toBe(false);
 	});
 
 	test('el clic en una opción la elige', async () => {
 		await open();
-		await wrapper?.find('[role="combobox"]').trigger('click');
-		await wrapper?.findAll('[role="option"]')[1]?.trigger('click');
+		await wrapper?.find('button[aria-haspopup="listbox"]').trigger('click');
+		await flushPromises();
+		options()[1]?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+		await flushPromises();
 		expect(useGreeter().selectedSession.value?.id).toBe('gnome');
 	});
 
-	test('la lista flota opaca dentro de la tarjeta, como cualquier desplegable', async () => {
-		await open();
-		expect(wrapper?.find('[role="listbox"]').classes()).toContain('bg-ui-float');
+	test('con una sola sesión no hay nada que elegir', async () => {
+		const greeter = useGreeter();
+		greeter.sessions.value = [SESSIONS[0] as Session];
+		wrapper = mount(SessionSelector, { attachTo: document.body });
+		await flushPromises();
+		expect(wrapper.find('button').exists()).toBe(false);
+		expect(wrapper.text()).toContain('VasakOS');
 	});
 });

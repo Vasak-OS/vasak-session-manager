@@ -1,13 +1,47 @@
 <script setup lang="ts">
-// TODO(2.4.0): el selector de usuario pasa a la librería (vue-libvasak 2.4.0).
-// Hasta entonces se arma acá con `ListRow` y `Avatar`, que sí están en la 2.3.
+/**
+ * Las cuentas del saludo: el `OptionGroup` de la librería en forma de tarjeta,
+ * con el avatar de cada una. Es un grupo de opciones de verdad (`radiogroup`):
+ * las flechas pasan de una cuenta a otra y el lector dice cuál está elegida.
+ */
 import { useI18n } from "@vasakgroup/tauri-plugin-i18n";
-import { Avatar, ListRow } from "@vasakgroup/vue-libvasak";
+import { OptionGroup, type OptionGroupOption } from "@vasakgroup/vue-libvasak";
+import { computed } from "vue";
 import { displayName, useGreeter } from "@/composables/useGreeter";
 
 const { t } = useI18n();
 const { users, selectedUser, usingManualEntry, selectUser, useManualEntry } =
   useGreeter();
+
+/** El valor de «Otra cuenta…»: ningún nombre de cuenta puede empezar con «:». */
+const MANUAL = ":manual";
+
+const options = computed<OptionGroupOption<string>[]>(() => [
+  ...users.value.map((user) => ({
+    value: user.name,
+    label: displayName(user),
+    description: `@${user.name}`,
+    avatar: user.avatar,
+    avatarName: displayName(user),
+  })),
+  // Always available: an account can exist without being enumerable (LDAP
+  // without enumeration, a hidden administrator), and with no users at all
+  // this is the only way in.
+  { value: MANUAL, label: t("login.otherUser"), icon: "avatar-default" },
+]);
+
+const chosen = computed<string | null>({
+  get: () =>
+    usingManualEntry.value ? MANUAL : (selectedUser.value?.name ?? null),
+  set: (value) => {
+    if (value === MANUAL) {
+      useManualEntry();
+      return;
+    }
+    const user = users.value.find((candidate) => candidate.name === value);
+    if (user) selectUser(user);
+  },
+});
 </script>
 
 <template>
@@ -22,42 +56,11 @@ const { users, selectedUser, usingManualEntry, selectUser, useManualEntry } =
       {{ t("login.noUsers") }}
     </p>
 
-    <!-- `!size-10`: el avatar mide 40 como antes; la 2.3 salta de 32 a 48
-         (pedido para la 2.4.0). El nombre ya está escrito al lado, así que el
-         avatar no lo repite (`alt=""`). -->
-    <ListRow
-      v-for="user in users"
-      :key="user.uid"
-      role="button"
-      :selected="!usingManualEntry && selectedUser?.uid === user.uid"
-      :title="displayName(user)"
-      :description="`@${user.name}`"
-      @click="selectUser(user)"
-    >
-      <template #leading>
-        <Avatar
-          :src="user.avatar"
-          :name="displayName(user)"
-          alt=""
-          size="lg"
-          class="!size-10"
-        />
-      </template>
-    </ListRow>
-
-    <!-- Always available: an account can exist without being enumerable
-         (LDAP without enumeration, a hidden administrator), and with no users
-         at all this is the only way in. Sin nombre, el avatar dibuja el icono
-         de persona del tema en vez del «?» de antes. -->
-    <ListRow
-      role="button"
-      :selected="usingManualEntry"
-      :title="t('login.otherUser')"
-      @click="useManualEntry()"
-    >
-      <template #leading>
-        <Avatar alt="" size="lg" class="!size-10" />
-      </template>
-    </ListRow>
+    <OptionGroup
+      v-model="chosen"
+      :options="options"
+      :label="t('login.selectUser')"
+      variant="card"
+    />
   </div>
 </template>

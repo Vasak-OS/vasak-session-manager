@@ -16,7 +16,7 @@
 		"@vasakgroup/plugin-config-manager": "^2.9.0",
 		"@vasakgroup/plugin-vicons": "^2.2.2",
 		"@vasakgroup/tauri-plugin-i18n": "^2.3.1",
-		"@vasakgroup/vue-libvasak": "^2.3.0",
+		"@vasakgroup/vue-libvasak": "^2.4.0",
 		"pinia": "^4.0.3",
 		"vue": "^3.5.43"
 	},
