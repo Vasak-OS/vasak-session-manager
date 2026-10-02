@@ -130,7 +130,7 @@ describe('las superficies sobre el fondo de pantalla dejan verlo, desenfocado', 
 	});
 
 	test('lo que flota dentro de la tarjeta va opaco: la lista de sesiones', () => {
-		const list = template('src/components/SessionSelector.vue').match(/<div\b[^>]*role="listbox"[^>]*>/)?.[0] ?? '';
+		const list = template('src/components/SessionSelector.vue').match(/<div\b[^>]*id="session-list"[^>]*>/)?.[0] ?? '';
 		expect(backgroundsOf(list)).toEqual(['ui-float']);
 		expect(list).not.toMatch(/backdrop-blur/);
 	});

@@ -88,6 +88,16 @@ function onKeydown(event: KeyboardEvent) {
 }
 
 /**
+ * Los roles van por enlace y no escritos en la plantilla porque el análisis
+ * estático (SonarCloud) los juzga sin ver lo que hay detrás: pide `<select>`
+ * en vez de `listbox` —y el `<select>` nativo es justo el que sale sin tema en
+ * el saludo, ver arriba— y no ve que `ListRow` ya pone `aria-selected` en cada
+ * opción (lo comprueba `tests/session-selector.test.ts`).
+ */
+const LISTBOX = "listbox";
+const OPTION = "option";
+
+/**
  * El puntero resalta la opción que tiene debajo. Va delegado en la lista y no
  * en cada fila porque la fila es un componente que no declara ese evento.
  */
@@ -155,7 +165,7 @@ onBeforeUnmount(() =>
         v-show="open"
         id="session-list"
         ref="list"
-        role="listbox"
+        :role="LISTBOX"
         aria-labelledby="session-label"
         class="absolute z-20 mt-1 max-h-56 w-full overflow-y-auto rounded-corner-l border border-ui-line bg-ui-float p-1 shadow-surface-l"
         @mousemove="onListPointer"
@@ -164,7 +174,7 @@ onBeforeUnmount(() =>
           v-for="(session, index) in sessions"
           :id="`session-option-${index}`"
           :key="session.id"
-          role="option"
+          :role="OPTION"
           :selected="session.id === selectedSession?.id"
           :title="session.name"
           :class="index === highlighted ? 'bg-ui-hover' : ''"

@@ -143,13 +143,12 @@ const submit = async () => {
         <!-- Qué está esperando la sesión, sin decir qué dice: sólo el icono de
              cada aplicación y cuántos avisos tiene. El contenido no cruza hasta
              una pantalla que puede estar mirando cualquiera. -->
-        <div
+        <ul
           v-if="showsForm && notifications.length > 0"
           class="flex flex-wrap items-center justify-center gap-3"
-          role="group"
           :aria-label="t('lock.notifications')"
         >
-          <span
+          <li
             v-for="entry in notifications"
             :key="entry.app"
             data-surface="notifications"
@@ -169,8 +168,8 @@ const submit = async () => {
             >
               <Badge variant="solid" tone="accent" :label="entry.count" />
             </span>
-          </span>
-        </div>
+          </li>
+        </ul>
 
         <form
           v-if="showsForm"

@@ -233,7 +233,7 @@ export function useLockScreen() {
 		await refreshContext();
 		refreshTimer = setInterval(() => {
 			checkClaim();
-			refreshContext();
+			void refreshContext();
 		}, REFRESH_MS);
 	}
 
