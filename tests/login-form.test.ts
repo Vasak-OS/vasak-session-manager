@@ -200,6 +200,16 @@ describe('el teclado', () => {
 		expect(passwordField().getAttribute('aria-describedby')).toContain(hint?.id ?? '-');
 	});
 
+	test('Escape mientras un método de entrada compone no borra lo escrito', async () => {
+		await open();
+		await type('casi');
+		const event = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true, isComposing: true });
+		passwordField().dispatchEvent(event);
+		await flushPromises();
+		expect(event.defaultPrevented).toBe(false);
+		expect(passwordField().value).toBe('casi');
+	});
+
 	test('Escape borra lo escrito, no envía y deja el foco en el campo', async () => {
 		await open();
 		await type('a medias');

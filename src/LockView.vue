@@ -62,7 +62,9 @@ onMounted(async () => {
  * nada y el foco se queda en el campo.
  */
 const onKey = (event: KeyboardEvent) => {
-  if (event.key !== "Escape") return;
+  // Con un método de entrada componiendo, Escape cancela la composición y no
+  // tiene que llevarse lo que ya estaba escrito.
+  if (event.key !== "Escape" || event.isComposing) return;
   event.preventDefault();
   password.value = "";
   error.value = "";

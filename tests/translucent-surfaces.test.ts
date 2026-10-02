@@ -115,13 +115,18 @@ describe('las superficies sobre el fondo de pantalla dejan verlo, desenfocado', 
 		const greeter = useGreeter();
 		greeter.selectedSession.value = null;
 		const wrapper = mount(LoginInput, { attachTo: document.body });
-		await flushPromises();
-		const field = wrapper.find('input[type="password"]');
-		const backgrounds = backgroundsOf(field.attributes('class') ?? '');
-		expect(backgrounds.length).toBeGreaterThan(0);
-		expect(backgrounds.every(isTranslucent)).toBe(true);
-		wrapper.unmount();
-		document.body.innerHTML = '';
+		try {
+			await flushPromises();
+			const field = wrapper.find('input[type="password"]');
+			const backgrounds = backgroundsOf(field.attributes('class') ?? '');
+			expect(backgrounds.length).toBeGreaterThan(0);
+			expect(backgrounds.every(isTranslucent)).toBe(true);
+		} finally {
+			// Aunque falle una afirmación: lo montado no puede quedar para la
+			// prueba siguiente del mismo proceso.
+			wrapper.unmount();
+			document.body.innerHTML = '';
+		}
 	});
 
 	test('el recuadro de avisos de la librería es translúcido', () => {
@@ -137,14 +142,17 @@ describe('las superficies sobre el fondo de pantalla dejan verlo, desenfocado', 
 		greeter.sessions.value = [session('a'), session('b')];
 		greeter.selectedSession.value = greeter.sessions.value[0] ?? null;
 		const wrapper = mount(SessionSelector, { attachTo: document.body });
-		await wrapper.find('button').trigger('click');
-		await flushPromises();
-		const popup = wrapper.find('[role="listbox"]').element.parentElement as HTMLElement;
-		const classes = popup.getAttribute('class') ?? '';
-		expect(backgroundsOf(classes)).toEqual(['ui-float']);
-		expect(classes).not.toMatch(/blur/);
-		wrapper.unmount();
-		document.body.innerHTML = '';
+		try {
+			await wrapper.find('button').trigger('click');
+			await flushPromises();
+			const popup = wrapper.find('[role="listbox"]').element.parentElement as HTMLElement;
+			const classes = popup.getAttribute('class') ?? '';
+			expect(backgroundsOf(classes)).toEqual(['ui-float']);
+			expect(classes).not.toMatch(/blur/);
+		} finally {
+			wrapper.unmount();
+			document.body.innerHTML = '';
+		}
 	});
 
 	test('ui-shell existe y es translúcida en la librería instalada', () => {
