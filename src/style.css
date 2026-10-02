@@ -1,5 +1,20 @@
 @import "tailwindcss";
 
+/* La forma de los componentes, con el criterio de Once UI: radios derivados
+   del que eligió la persona, bordes finos, velos de estado, la superficie de lo
+   que flota, sombras, roles de texto y curvas. Va después de Tailwind, como
+   pide la librería, y trae también el piso del anillo de foco con `ui-focus`
+   (vue-libvasak#74, `docs/once-ui.md`). Los colores no están ahí: los deriva de
+   las `--use-*` de abajo, que pisan el gestor de configuración (pantalla de
+   bloqueo) o `useAppearance` (saludo) con el esquema. */
+@import "@vasakgroup/vue-libvasak/tokens.css";
+
+/* Tailwind v4 no mira dentro de `node_modules`, así que las clases que sólo
+   existen en los componentes de la librería —el botón, el campo, el aviso— no
+   llegan nunca a la hoja de estilos: la pantalla abre con el marcado puesto y
+   sin ninguna de sus reglas. */
+@source "../node_modules/@vasakgroup/vue-libvasak/dist";
+
 :root {
   /* general */
   --corner-radius: 10px;
@@ -28,17 +43,27 @@
   --ui-background: #eff1f5;
   --ui-surface: #ccd0da;
   --ui-border: #dce0e8;
+  /* El borde de lo que delimita un control —el campo de la contraseña, el
+     selector de sesión—. `--ui-border` da 1,17:1 contra el fondo y WCAG 1.4.11
+     pide 3:1 para un contorno que se tiene que ver. Son los mismos valores que
+     el resto del taller. */
+  --ui-border-strong: #7c7f93;
   --ui-background-dark: #1e1e2e;
   --ui-surface-dark: #313244;
   --ui-border-dark: #11111b;
+  --ui-border-strong-dark: #6c7086;
 
-  /* Colores de Texto */
+  /* Colores de Texto. `text-muted` y los `on-*` son los del resto del taller:
+     los de antes daban 4,37:1 (atenuado sobre el fondo claro) y 2,1:1 (el texto
+     del botón «Iniciar sesión» sobre el primario), debajo del 4,5:1 de WCAG. */
   --text-main: #4c4f69;
-  --text-muted: #6c6f85;
-  --text-on-primary: #5c5f77;
+  --text-muted: #555869;
+  --text-on-primary: #1e1e2e;
+  --text-on-secondary: #eff1f5;
   --text-main-dark: #cdd6f4;
   --text-muted-dark: #a6adc8;
-  --text-on-primary-dark: #cdd6f4;
+  --text-on-primary-dark: #1e1e2e;
+  --text-on-secondary-dark: #1e1e2e;
 
   /* Status */
   --status-error: #d20f39;
@@ -54,9 +79,11 @@
   --use-ui-background: var(--ui-background);
   --use-ui-surface: var(--ui-surface);
   --use-ui-border: var(--ui-border);
+  --use-ui-border-strong: var(--ui-border-strong);
   --use-text-main: var(--text-main);
   --use-text-muted: var(--text-muted);
   --use-text-on-primary: var(--text-on-primary);
+  --use-text-on-secondary: var(--text-on-secondary);
   --use-status-error: var(--status-error);
   --use-status-success: var(--status-success);
   --use-status-warning: var(--status-warning);
@@ -69,9 +96,11 @@
   --use-ui-background: var(--ui-background-dark);
   --use-ui-surface: var(--ui-surface-dark);
   --use-ui-border: var(--ui-border-dark);
+  --use-ui-border-strong: var(--ui-border-strong-dark);
   --use-text-main: var(--text-main-dark);
   --use-text-muted: var(--text-muted-dark);
   --use-text-on-primary: var(--text-on-primary-dark);
+  --use-text-on-secondary: var(--text-on-secondary-dark);
   --use-status-error: var(--status-error-dark);
   --use-status-success: var(--status-success-dark);
   --use-status-warning: var(--status-warning-dark);
@@ -86,9 +115,10 @@
   --font-title: var(--vsk-font-title);
   --font-mono: var(--vsk-font-terminal);
 
-  /* radius */
-  --radius-corner: var(--corner-radius);
-  --radius-corner-window: calc(var(--corner-radius) + 2px);
+  /* Los radios —`rounded-corner-xs…xl`, `-full` y `-window`— los declara
+     `tokens.css`, derivados todos de `--corner-radius` con `calc()`. Acá había
+     una copia (`corner` y `corner-window`); dos lugares que dicen lo mismo
+     terminan diciendo cosas distintas. */
 
   /* Colores de Marca - responsive a dark mode */
   --color-primary: var(--use-primary);
@@ -98,18 +128,19 @@
   --color-ui-bg: var(--use-ui-background);
   --color-ui-surface: var(--use-ui-surface);
   --color-ui-border: var(--use-ui-border);
+  --color-ui-border-strong: var(--use-ui-border-strong);
 
   /* Colores de Texto - responsive a dark mode */
   --color-tx-main: var(--use-text-main);
   --color-tx-muted: var(--use-text-muted);
   --color-tx-on-primary: var(--use-text-on-primary);
+  --color-tx-on-secondary: var(--use-text-on-secondary);
 
   /* Status - responsive a dark mode */
   --color-status-error: var(--use-status-error);
   --color-status-success: var(--use-status-success);
   --color-status-warning: var(--use-status-warning);
 }
-
 
 ::view-transition-old(root) {
   animation-delay: 500ms;
@@ -120,7 +151,8 @@
 }
 
 /* The greeter surface is exactly the size of the screens it covers: a
-   scrollbar here would mean the login screen can be scrolled off itself. */
+   scrollbar on the page would mean the login screen can be scrolled off
+   itself. What does not fit on a small screen scrolls inside the screen. */
 html,
 body,
 #app {
@@ -128,12 +160,21 @@ body,
   overflow: hidden;
 }
 
-body * {
-  @apply text-tx-main transition-colors duration-300;
-}
+/* El color del texto se hereda del cuerpo y va en la capa `base`.
 
-.background {
-  @apply bg-ui-bg/80;
+   Era `body * { @apply text-tx-main }` suelto, fuera de toda capa, y en CSS lo
+   que no está en una capa le gana a lo que sí: pisaba todas las utilidades de
+   color de texto —el `text-tx-on-primary` del botón de la librería, el
+   `text-tx-muted` de la fecha— (vasak-desktop#144). Heredado desde el cuerpo,
+   lo que no pide color sigue en `tx-main` y lo que lo pide, lo recibe. */
+@layer base {
+  body {
+    color: var(--color-tx-main);
+  }
+
+  body * {
+    @apply transition-colors duration-300;
+  }
 }
 
 @layer base {
@@ -142,7 +183,9 @@ body * {
   ::before,
   ::backdrop,
   ::file-selector-button {
-    border-color: var(--color-gray-200, currentColor);
+    /* El canto fino del esquema y no `gray-200`, que es un gris de la paleta
+       de Tailwind: un `border` sin color queda como los de la librería. */
+    border-color: var(--color-ui-line-weak, currentColor);
   }
 }
 
@@ -156,10 +199,30 @@ body * {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.2);
-  border-radius: 4px;
+  /* Era blanco al 20 %: invisible sobre el esquema claro. El token sigue al
+     tema. */
+  background: color-mix(in srgb, var(--color-tx-muted) 45%, transparent);
+  border-radius: var(--radius-corner-xs);
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.3);
+  background: color-mix(in srgb, var(--color-tx-muted) 70%, transparent);
+}
+
+/*
+ * Menos movimiento para quien lo pidió (WCAG 2.3.3).
+ *
+ * Una duración mínima en lugar de `none` conserva los eventos `transitionend`
+ * y `animationend`, y `iteration-count: 1` detiene la rueda de «verificando»,
+ * que es lo que gira sin parar.
+ */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }

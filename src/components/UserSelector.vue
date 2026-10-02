@@ -1,79 +1,63 @@
 <script setup lang="ts">
+// TODO(2.4.0): el selector de usuario pasa a la librería (vue-libvasak 2.4.0).
+// Hasta entonces se arma acá con `ListRow` y `Avatar`, que sí están en la 2.3.
 import { useI18n } from "@vasakgroup/tauri-plugin-i18n";
+import { Avatar, ListRow } from "@vasakgroup/vue-libvasak";
 import { displayName, useGreeter } from "@/composables/useGreeter";
-import type { SystemUser } from "@/types/greeter";
 
 const { t } = useI18n();
 const { users, selectedUser, usingManualEntry, selectUser, useManualEntry } =
   useGreeter();
-
-/** Initial used when the account has no picture. */
-const initial = (user: SystemUser) =>
-  displayName(user).charAt(0).toUpperCase();
 </script>
 
 <template>
-  <div class="flex flex-col gap-2 w-full">
-    <h3 class="text-sm font-semibold text-primary mb-2 uppercase">
+  <div class="flex w-full min-w-0 flex-col gap-2">
+    <!-- Atenuado y no en el primario: el acento es para lo que actúa, y el
+         primario de fábrica sobre la tarjeta clara no llega a 4,5:1. -->
+    <h3 class="mb-2 text-label-xs font-semibold uppercase tracking-wider text-tx-muted">
       {{ t("login.selectUser") }}
     </h3>
 
-    <p v-if="users.length === 0" class="text-tx-muted text-sm">
+    <p v-if="users.length === 0" class="text-body-s text-tx-muted">
       {{ t("login.noUsers") }}
     </p>
 
-    <button
+    <!-- `!size-10`: el avatar mide 40 como antes; la 2.3 salta de 32 a 48
+         (pedido para la 2.4.0). El nombre ya está escrito al lado, así que el
+         avatar no lo repite (`alt=""`). -->
+    <ListRow
       v-for="user in users"
       :key="user.uid"
-      type="button"
+      role="button"
+      :selected="!usingManualEntry && selectedUser?.uid === user.uid"
+      :title="displayName(user)"
+      :description="`@${user.name}`"
       @click="selectUser(user)"
-      class="p-3 border rounded-corner cursor-pointer hover:bg-ui-surface transition-colors flex items-center gap-4 text-left"
-      :class="
-        !usingManualEntry && selectedUser?.uid === user.uid
-          ? 'bg-secondary/30 border-primary ring-1 ring-secondary'
-          : 'border-ui-border'
-      "
     >
-      <img
-        v-if="user.avatar"
-        :src="user.avatar"
-        alt=""
-        class="w-10 h-10 rounded-full object-cover shrink-0"
-      />
-      <div
-        v-else
-        class="w-10 h-10 bg-primary rounded-full flex items-center justify-center text-tx-on-primary font-bold shrink-0"
-      >
-        {{ initial(user) }}
-      </div>
-
-      <div class="min-w-0">
-        <div class="font-bold text-tx-main truncate">
-          {{ displayName(user) }}
-        </div>
-        <div class="text-xs text-tx-muted truncate">@{{ user.name }}</div>
-      </div>
-    </button>
+      <template #leading>
+        <Avatar
+          :src="user.avatar"
+          :name="displayName(user)"
+          alt=""
+          size="lg"
+          class="!size-10"
+        />
+      </template>
+    </ListRow>
 
     <!-- Always available: an account can exist without being enumerable
          (LDAP without enumeration, a hidden administrator), and with no users
-         at all this is the only way in. -->
-    <button
-      type="button"
+         at all this is the only way in. Sin nombre, el avatar dibuja el icono
+         de persona del tema en vez del «?» de antes. -->
+    <ListRow
+      role="button"
+      :selected="usingManualEntry"
+      :title="t('login.otherUser')"
       @click="useManualEntry()"
-      class="p-3 border rounded-corner cursor-pointer hover:bg-ui-surface transition-colors flex items-center gap-4 text-left"
-      :class="
-        usingManualEntry
-          ? 'bg-secondary/30 border-primary ring-1 ring-secondary'
-          : 'border-ui-border'
-      "
     >
-      <div
-        class="w-10 h-10 rounded-full border border-dashed border-ui-border flex items-center justify-center text-tx-muted shrink-0"
-      >
-        ?
-      </div>
-      <div class="font-bold text-tx-main">{{ t("login.otherUser") }}</div>
-    </button>
+      <template #leading>
+        <Avatar alt="" size="lg" class="!size-10" />
+      </template>
+    </ListRow>
   </div>
 </template>

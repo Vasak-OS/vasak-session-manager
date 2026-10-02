@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted } from "vue";
 import { useI18n } from "@vasakgroup/tauri-plugin-i18n";
+import { Avatar } from "@vasakgroup/vue-libvasak";
 import GreeterClock from "@/components/GreeterClock.vue";
 import LoginInput from "@/components/LoginInput.vue";
 import PowerMenu from "@/components/PowerMenu.vue";
@@ -112,61 +113,80 @@ onMounted(load);
       <div class="absolute inset-0 bg-ui-bg/40"></div>
     </div>
 
+    <!-- La pantalla donde va el cuadro. Es contenedor (`@container`) porque lo
+         que decide si las columnas van lado a lado es el ancho de **este**
+         monitor, no el de la superficie entera, y WebKitGTK no avisa de
+         `matchMedia` ni de `resize`. Y se desplaza por dentro: en una pantalla
+         chica el cuadro apilado no entra, y sin esto quedaban cortados el reloj
+         arriba y el botón de entrar abajo. -->
     <div
-      class="absolute flex flex-col items-center justify-center gap-10 p-6 transition-all duration-300 ease-out"
+      class="@container absolute overflow-x-hidden overflow-y-auto transition-all duration-300 ease-ui-out"
       :style="loginArea"
     >
-      <GreeterClock />
+      <div class="flex min-h-full flex-col items-center justify-center gap-10 p-6">
+        <GreeterClock />
 
-      <!-- Las mismas transparencias que cualquier superficie de VasakOS:
-           `bg-ui-bg/80` con `backdrop-blur-md` y el borde de la interfaz. El
-           blur es lo que deja que se vea el fondo sin que compita con el
-           formulario. -->
-      <div
-        class="bg-ui-bg/80 backdrop-blur-md border border-ui-border p-8 rounded-corner shadow-xl w-full max-w-4xl flex flex-col md:flex-row gap-8"
-      >
-        <!-- Accounts. Hidden when there is nobody to choose between, so a
-             single-user machine goes straight to the password. -->
+        <!-- La tarjeta va translúcida y desenfoca el fondo que tiene detrás:
+             esta pantalla no tiene a Wayfire debajo que lo haga, así que lo hace
+             la página (decisión del usuario, 02/10/2026). A partir de 720 px de
+             pantalla (el `md:` de antes, menos el margen) las cuentas y la
+             contraseña van lado a lado; más angosta, una columna debajo de la
+             otra. -->
         <div
-          v-if="users.length > 0"
-          class="flex-1 flex flex-col md:border-r md:border-ui-border md:pr-8 max-h-[60vh] overflow-y-auto"
+          data-surface="card"
+          class="flex w-full max-w-4xl min-w-0 flex-col gap-8 rounded-corner-xl border border-ui-line bg-ui-shell p-4 shadow-surface-l backdrop-blur-md @xs:p-8 @min-[45rem]:flex-row"
         >
-          <h1 class="text-2xl font-bold text-tx-main mb-6">
-            {{ t("login.title") }}
-          </h1>
-          <UserSelector />
-        </div>
-
-        <div class="flex-1 flex flex-col justify-center gap-6">
-          <h1 v-if="users.length === 0" class="text-2xl font-bold text-tx-main">
-            {{ t("login.title") }}
-          </h1>
-
-          <div v-if="selectedUser" class="flex items-center gap-4">
-            <img
-              v-if="selectedUser.avatar"
-              :src="selectedUser.avatar"
-              alt=""
-              class="w-14 h-14 rounded-full object-cover"
-            />
-            <h2 class="text-xl font-semibold text-tx-main">
-              {{ displayName(selectedUser) }}
-            </h2>
+          <!-- Accounts. Hidden when there is nobody to choose between, so a
+               single-user machine goes straight to the password. -->
+          <div
+            v-if="users.length > 0"
+            class="flex min-w-0 flex-1 flex-col @min-[45rem]:max-h-[60vh] @min-[45rem]:overflow-y-auto @min-[45rem]:border-r @min-[45rem]:border-ui-line @min-[45rem]:pr-8"
+          >
+            <h1 class="mb-6 text-2xl font-bold break-words text-tx-main">
+              {{ t("login.title") }}
+            </h1>
+            <UserSelector />
           </div>
 
-          <p
-            v-if="usingManualEntry && users.length === 0"
-            class="text-tx-muted text-sm"
-          >
-            {{ t("login.noUsersHint") }}
-          </p>
+          <div class="flex min-w-0 flex-1 flex-col justify-center gap-6">
+            <h1 v-if="users.length === 0" class="text-2xl font-bold break-words text-tx-main">
+              {{ t("login.title") }}
+            </h1>
 
-          <SessionSelector />
-          <LoginInput />
+            <!-- La foto, si la cuenta tiene una: sin foto no se dibuja nada,
+                 como antes. `!size-14`: 56 como antes (la 2.3 tiene 48 y 64). -->
+            <div v-if="selectedUser" class="flex min-w-0 items-center gap-4">
+              <Avatar
+                v-if="selectedUser.avatar"
+                :src="selectedUser.avatar"
+                :name="displayName(selectedUser)"
+                alt=""
+                size="xl"
+                class="!size-14"
+              />
+              <h2 class="min-w-0 text-xl font-semibold break-words text-tx-main">
+                {{ displayName(selectedUser) }}
+              </h2>
+            </div>
+
+            <p
+              v-if="usingManualEntry && users.length === 0"
+              class="text-body-s text-tx-muted"
+            >
+              {{ t("login.noUsersHint") }}
+            </p>
+
+            <SessionSelector />
+            <LoginInput />
+          </div>
         </div>
-      </div>
 
-      <PowerMenu class="absolute bottom-6 right-6" />
+        <!-- En la esquina cuando hay lugar; en una pantalla angosta, debajo de
+             la tarjeta, que es donde no la pisa. -->
+        <PowerMenu
+          class="self-end @min-[45rem]:absolute @min-[45rem]:right-6 @min-[45rem]:bottom-6"
+        />
+      </div>
     </div>
   </main>
 </template>

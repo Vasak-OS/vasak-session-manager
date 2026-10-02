@@ -1,7 +1,7 @@
 {
 	"name": "vasak-session-manager",
 	"private": true,
-	"version": "0.7.2",
+	"version": "0.8.0",
 	"type": "module",
 	"scripts": {
 		"dev": "vite",
@@ -12,23 +12,27 @@
 	},
 	"dependencies": {
 		"@tailwindcss/vite": "^4.3.3",
-		"@tauri-apps/api": "^2.12.0",
+		"@tauri-apps/api": "^2.12.1",
 		"@vasakgroup/plugin-config-manager": "^2.9.0",
-		"@vasakgroup/plugin-vicons": "^2.2.1",
-		"@vasakgroup/tauri-plugin-i18n": "^2.3.0",
+		"@vasakgroup/plugin-vicons": "^2.2.2",
+		"@vasakgroup/tauri-plugin-i18n": "^2.3.1",
+		"@vasakgroup/vue-libvasak": "^2.3.0",
 		"pinia": "^4.0.3",
 		"vue": "^3.5.43"
 	},
 	"devDependencies": {
+		"@happy-dom/global-registrator": "^20.14.5",
 		"@tailwindcss/postcss": "^4.3.3",
-		"@tauri-apps/cli": "^2.12.0",
-		"@types/node": "^26.6.3",
+		"@tauri-apps/cli": "^2.12.1",
+		"@types/node": "^26.6.4",
 		"@vitejs/plugin-vue": "^6.0.9",
+		"@vue/compiler-sfc": "^3.5.43",
+		"@vue/test-utils": "^2.5.1",
 		"postcss": "^8.5.28",
 		"tailwindcss": "^4.3.3",
 		"typescript": "^5.9.3",
 		"vite": "^7.3.6",
-		"vue-tsc": "^3.3.11"
+		"vue-tsc": "^3.3.12"
 	},
 	"vasak": {
 		"bibliotecasAtrasadas": {

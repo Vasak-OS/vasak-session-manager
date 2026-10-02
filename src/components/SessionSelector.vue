@@ -1,6 +1,11 @@
 <script setup lang="ts">
+// TODO(2.4.0): el selector de sesión pasa a la librería (vue-libvasak 2.4.0).
+// La 2.3 sólo tiene `SelectField`, que es el `<select>` nativo, y ése es justo
+// el que no sirve acá (ver abajo). Hasta entonces la lista es local, con las
+// filas de la librería (`ListRow`) y la forma de su campo.
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useI18n } from "@vasakgroup/tauri-plugin-i18n";
+import { ListRow, ThemeIcon } from "@vasakgroup/vue-libvasak";
 import { useGreeter } from "@/composables/useGreeter";
 import type { Session } from "@/types/greeter";
 
@@ -82,6 +87,18 @@ function onKeydown(event: KeyboardEvent) {
   }
 }
 
+/**
+ * El puntero resalta la opción que tiene debajo. Va delegado en la lista y no
+ * en cada fila porque la fila es un componente que no declara ese evento.
+ */
+function onListPointer(event: MouseEvent) {
+  const option = (event.target as HTMLElement | null)?.closest<HTMLElement>(
+    '[role="option"]',
+  );
+  const index = option ? Number(option.id.replace("session-option-", "")) : -1;
+  if (index >= 0) highlighted.value = index;
+}
+
 /** Clicking anywhere else closes it, the way a real dropdown does. */
 function onPointerDown(event: PointerEvent) {
   if (open.value && !root.value?.contains(event.target as Node)) {
@@ -96,21 +113,26 @@ onBeforeUnmount(() =>
 </script>
 
 <template>
-  <div ref="root" class="w-full relative">
+  <div ref="root" class="relative w-full min-w-0">
+    <!-- La etiqueta chica en mayúsculas de `FormGroup variant="eyebrow"`, a
+         mano porque el control es un botón con su valor adentro: un `<label>`
+         le pisaría el nombre con el texto de la etiqueta. -->
     <span
       id="session-label"
-      class="text-xs font-semibold text-tx-main uppercase mb-1 block"
+      class="mb-1 block text-label-xs font-semibold uppercase tracking-wider text-tx-muted"
     >
       {{ t("login.session") }}
     </span>
 
     <!-- A single session is not a choice; showing a one-item dropdown is just
          another control to skip past. -->
-    <p v-if="sessions.length === 1" class="text-sm text-tx-muted py-2">
+    <p v-if="sessions.length === 1" class="py-2 text-body-s text-tx-muted">
       {{ sessions[0].name }}
     </p>
 
     <template v-else-if="sessions.length > 1">
+      <!-- La forma de `SelectField` de la librería: 32 de alto, el canto de
+           3:1 y el anillo de foco del sistema. -->
       <button
         type="button"
         role="combobox"
@@ -121,40 +143,37 @@ onBeforeUnmount(() =>
         aria-labelledby="session-label"
         @click="toggle"
         @keydown="onKeydown"
-        class="p-2 border border-ui-border rounded-corner w-full bg-ui-bg/80 backdrop-blur-md text-tx-main text-left flex items-center justify-between gap-2 focus:ring-2 focus:ring-primary focus:border-transparent"
+        class="flex h-8 w-full min-w-0 items-center justify-between gap-2 rounded-corner-m border border-ui-border-strong bg-ui-surface/70 pr-2 pl-3 text-left text-label-m text-tx-main transition-colors duration-200 ease-ui hover:border-tx-main focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ui-focus"
       >
         <span class="truncate">{{ label }}</span>
-        <span class="text-tx-muted text-xs shrink-0" aria-hidden="true">▾</span>
+        <ThemeIcon name="pan-down-symbolic" type="symbol" :size="16" />
       </button>
 
-      <ul
+      <!-- Lo que flota dentro de la tarjeta va opaco (`ui-float`), como
+           cualquier lista desplegable del sistema. -->
+      <div
         v-show="open"
         id="session-list"
         ref="list"
         role="listbox"
         aria-labelledby="session-label"
-        class="absolute z-20 mt-1 w-full max-h-56 overflow-y-auto rounded-corner border border-ui-border bg-ui-surface/90 backdrop-blur-md shadow-xl py-1"
+        class="absolute z-20 mt-1 max-h-56 w-full overflow-y-auto rounded-corner-l border border-ui-line bg-ui-float p-1 shadow-surface-l"
+        @mousemove="onListPointer"
       >
-        <li
+        <ListRow
           v-for="(session, index) in sessions"
           :id="`session-option-${index}`"
           :key="session.id"
           role="option"
-          :aria-selected="session.id === selectedSession?.id"
+          :selected="session.id === selectedSession?.id"
+          :title="session.name"
+          :class="index === highlighted ? 'bg-ui-hover' : ''"
           @click="choose(session)"
-          @mousemove="highlighted = index"
-          class="px-3 py-2 cursor-pointer text-sm text-tx-main"
-          :class="[
-            index === highlighted ? 'bg-secondary/30' : '',
-            session.id === selectedSession?.id ? 'font-semibold' : '',
-          ]"
-        >
-          {{ session.name }}
-        </li>
-      </ul>
+        />
+      </div>
     </template>
 
-    <p v-else class="text-sm text-status-warning">
+    <p v-else class="text-body-s text-tx-main">
       {{ t("login.noSessions") }}
       <span class="block text-tx-muted">{{ t("login.noSessionsHint") }}</span>
     </p>

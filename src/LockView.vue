@@ -2,21 +2,23 @@
 import { invoke } from "@tauri-apps/api/core";
 import { useI18n } from "@vasakgroup/tauri-plugin-i18n";
 import { useConfigStore } from "@vasakgroup/plugin-config-manager";
+import {
+  ActionButton,
+  AlertMessage,
+  Avatar,
+  Badge,
+  FormGroup,
+  IconTile,
+  TextInput,
+} from "@vasakgroup/vue-libvasak";
 import { nextTick, onMounted, ref } from "vue";
 import GreeterClock from "@/components/GreeterClock.vue";
-import LockIcon from "@/components/LockIcon.vue";
 import { useLockScreen } from "@/composables/useLockScreen";
 
 const { t } = useI18n();
 
-const {
-  esLaPantallaDelMouse,
-  avisos,
-  reproduccion,
-  punteroAqui,
-  ordenarAlReproductor,
-  empezar,
-} = useLockScreen();
+const { showsForm, notifications, playback, pointerHere, sendToPlayer, start } =
+  useLockScreen();
 
 const user = ref("");
 const password = ref("");
@@ -25,7 +27,8 @@ const working = ref(false);
 const capsLock = ref(false);
 const background = ref<string | null>(null);
 const avatar = ref<string | null>(null);
-const field = ref<HTMLInputElement | null>(null);
+/** El campo de la librería expone `focus()`, que dice si llegó. */
+const field = ref<{ focus: () => boolean } | null>(null);
 
 onMounted(async () => {
   // Colours, corner radius and font come from the configuration, the same way
@@ -41,7 +44,7 @@ onMounted(async () => {
     error.value = `lock_user: ${String(reason)}`;
   }
 
-  await empezar();
+  await start();
 
   await nextTick();
   field.value?.focus();
@@ -59,6 +62,25 @@ const updateCapsLock = (event: KeyboardEvent) => {
   capsLock.value = event.getModifierState("CapsLock");
 };
 
+/**
+ * Escape borra lo escrito, como en cualquier pantalla de bloqueo: es la forma
+ * de empezar de nuevo sin borrar letra por letra algo que no se ve. No envía
+ * nada y el foco se queda en el campo.
+ */
+const onKey = (event: KeyboardEvent) => {
+  updateCapsLock(event);
+  if (event.key !== "Escape") return;
+  event.preventDefault();
+  password.value = "";
+  error.value = "";
+};
+
+/** El texto de cada recuadro de avisos, que es además su nombre accesible. */
+const notificationsLabel = (count: number, app: string) =>
+  t(count === 1 ? "lock.notificationsOne" : "lock.notificationsMany")
+    .replace("{0}", String(count))
+    .replace("{1}", app);
+
 const submit = async () => {
   if (!password.value || working.value) return;
 
@@ -71,157 +93,189 @@ const submit = async () => {
     if (!(await invoke<boolean>("unlock", { password: password.value }))) {
       error.value = t("lock.wrongPassword");
       password.value = "";
-      await nextTick();
-      field.value?.focus();
     }
   } catch {
     error.value = t("lock.error");
   } finally {
     working.value = false;
   }
+  // Después de soltar `working`: con el campo apagado el foco no entra, y es
+  // ahí donde se va a escribir de nuevo.
+  if (error.value) {
+    await nextTick();
+    field.value?.focus();
+  }
 };
 </script>
 
 <template>
-  <!-- `mousemove` y `mouseenter`: el compositor manda el segundo cuando la
-       superficie aparece debajo del puntero, sin que haga falta mover el mouse,
-       y el primero cubre el caso de pasar de un monitor a otro. -->
   <main
-    class="relative min-h-screen w-screen flex flex-col items-center justify-center gap-10 bg-ui-surface p-6 select-none overflow-hidden"
-    @mouseenter="punteroAqui"
-    @mousemove="punteroAqui"
+    class="@container relative h-full w-full overflow-x-hidden overflow-y-auto bg-ui-surface select-none"
+    @mouseenter="pointerHere"
+    @mousemove="pointerHere"
   >
+    <!-- `mousemove` y `mouseenter`: el compositor manda el segundo cuando la
+         superficie aparece debajo del puntero, sin que haga falta mover el mouse,
+         y el primero cubre el caso de pasar de un monitor a otro.
+
+         Es contenedor y se desplaza por dentro: en una pantalla chica o baja lo
+         que no entra se puede alcanzar, en vez de quedar cortado arriba y abajo
+         como pasaba con el centrado de antes. -->
     <!-- El fondo del escritorio, atenuado: se reconoce la sesión que hay
-         detrás sin que el texto pierda contraste. -->
+         detrás sin que el texto pierda contraste. Fijo, para que no se vaya con
+         el desplazamiento. -->
     <img
       v-if="background"
       :src="background"
       alt=""
-      class="absolute inset-0 h-full w-full object-cover"
+      class="fixed inset-0 h-full w-full object-cover"
     />
-    <div v-if="background" class="absolute inset-0 bg-ui-bg/70"></div>
+    <div v-if="background" class="fixed inset-0 bg-ui-bg/70"></div>
 
-    <!-- La separación tiene que ser mayor que lo que la foto sobresale del
-         formulario (-top-12, 48px), o el avatar se le sube encima a lo que tenga
-         arriba —la fecha, o los avisos—: con gap-10 quedaba 40px y se solapaban. -->
-    <div class="relative flex flex-col items-center gap-20 w-full">
-      <GreeterClock />
+    <div class="relative flex min-h-full flex-col items-center justify-center p-6">
+      <!-- La separación tiene que ser mayor que lo que la foto sobresale del
+           formulario (-top-12, 48px), o el avatar se le sube encima a lo que
+           tenga arriba —la fecha, o los avisos—: con gap-10 quedaba 40px y se
+           solapaban. -->
+      <div class="relative flex w-full flex-col items-center gap-20">
+        <GreeterClock />
 
-      <!-- Qué está esperando la sesión, sin decir qué dice: sólo el icono de
-           cada aplicación y cuántos avisos tiene. El contenido no cruza hasta
-           una pantalla que puede estar mirando cualquiera. -->
-      <div
-        v-if="esLaPantallaDelMouse && avisos.length > 0"
-        class="flex items-center gap-3"
-        :aria-label="t('lock.notifications')"
-      >
+        <!-- Qué está esperando la sesión, sin decir qué dice: sólo el icono de
+             cada aplicación y cuántos avisos tiene. El contenido no cruza hasta
+             una pantalla que puede estar mirando cualquiera. -->
         <div
-          v-for="aviso in avisos"
-          :key="aviso.aplicacion"
-          class="relative flex h-10 w-10 items-center justify-center rounded-corner bg-ui-bg/70 border border-ui-border"
-          :title="t(aviso.cuantas === 1 ? 'lock.notificationsOne' : 'lock.notificationsMany').replace('{0}', String(aviso.cuantas)).replace('{1}', aviso.aplicacion)"
+          v-if="showsForm && notifications.length > 0"
+          class="flex flex-wrap items-center justify-center gap-3"
+          role="group"
+          :aria-label="t('lock.notifications')"
         >
-          <LockIcon :name="aviso.icono" :size="22" :alt="aviso.aplicacion" />
           <span
-            v-if="aviso.cuantas > 1"
-            class="absolute -right-1 -top-1 min-w-5 rounded-full bg-primary px-1 text-center text-[11px] font-medium text-tx-on-primary"
+            v-for="entry in notifications"
+            :key="entry.app"
+            data-surface="notifications"
+            class="relative inline-flex rounded-corner-m backdrop-blur-md"
+            :title="notificationsLabel(entry.count, entry.app)"
           >
-            {{ aviso.cuantas }}
+            <IconTile
+              :name="entry.icon"
+              size="md"
+              :label="notificationsLabel(entry.count, entry.app)"
+            />
+            <!-- Oculto al lector: el nombre del recuadro ya dice cuántos. -->
+            <span
+              v-if="entry.count > 1"
+              class="absolute -top-1 -right-1"
+              aria-hidden="true"
+            >
+              <Badge variant="solid" tone="accent" :label="entry.count" />
+            </span>
           </span>
         </div>
-      </div>
 
-      <form
-        v-if="esLaPantallaDelMouse"
-        class="relative bg-ui-bg/80 px-8 pb-8 pt-14 rounded-corner shadow-xl w-full max-w-md flex flex-col gap-4"
-        @submit.prevent="submit"
-      >
-        <!-- La foto sobresale por encima del borde: es lo que dice de quién es
-             esta sesión, sin necesidad de escribir el nombre. -->
-        <div
-          class="absolute -top-12 left-1/2 -translate-x-1/2 h-24 w-24 rounded-full border-4 border-ui-bg bg-ui-surface shadow-lg overflow-hidden flex items-center justify-center"
+        <form
+          v-if="showsForm"
+          data-surface="lock-card"
+          class="relative flex w-full max-w-md min-w-0 flex-col gap-4 rounded-corner-xl border border-ui-line bg-ui-shell px-4 pt-14 pb-8 shadow-surface-l backdrop-blur-md @xs:px-8"
+          @submit.prevent="submit"
         >
-          <img v-if="avatar" :src="avatar" alt="" class="h-full w-full object-cover" />
-          <span v-else class="text-3xl font-semibold text-tx-muted uppercase">
-            {{ user.slice(0, 1) }}
-          </span>
-        </div>
-
-        <h1 class="text-center text-lg font-semibold text-tx-main">
-          {{ t("lock.title") }}
-        </h1>
-
-        <div class="flex flex-col gap-1">
-          <label
-            for="lock-password"
-            class="text-xs font-semibold uppercase text-tx-main"
+          <!-- La foto sobresale por encima del borde: es lo que dice de quién
+               es esta sesión, sin necesidad de escribir el nombre. El aro es
+               del fondo de la ventana, para despegarla de la tarjeta.
+               `!size-full`: 96 como antes (la 2.3 llega a 64). -->
+          <span
+            class="absolute -top-12 left-1/2 flex size-24 -translate-x-1/2 rounded-corner-full border-4 border-ui-bg bg-ui-surface shadow-surface-m"
           >
-            {{ t("lock.password") }}
-          </label>
-          <input
-            id="lock-password"
-            ref="field"
-            v-model="password"
-            type="password"
-            autocomplete="current-password"
-            :disabled="working"
-            class="p-2 border border-ui-border rounded-corner w-full bg-ui-bg/80 text-tx-main focus:ring-2 focus:ring-primary focus:border-transparent disabled:opacity-50"
-            @keydown="updateCapsLock"
-            @keyup="updateCapsLock"
+            <Avatar
+              :src="avatar"
+              :name="user"
+              alt=""
+              size="xl"
+              class="!size-full !text-3xl"
+            />
+          </span>
+
+          <h1 class="text-center text-heading-s font-semibold text-tx-main">
+            {{ t("lock.title") }}
+          </h1>
+
+          <!-- TODO(2.4.0): el campo de contraseña con «mostrar» pasa a la
+               librería. Bloq Mayús va como ayuda del campo: se ve debajo y se
+               anuncia al llegar al campo. -->
+          <FormGroup
+            :label="t('lock.password')"
+            variant="eyebrow"
+            html-for="lock-password"
+            :help="capsLock ? t('lock.capsLock') : ''"
+            v-slot="{ id, describedBy }"
+          >
+            <TextInput
+              :id="id"
+              ref="field"
+              v-model="password"
+              type="password"
+              autocomplete="current-password"
+              :disabled="working"
+              :invalid="Boolean(error)"
+              :described-by="[describedBy, error ? 'lock-error' : ''].filter(Boolean).join(' ') || undefined"
+              @keydown="onKey"
+              @keyup="updateCapsLock"
+            />
+          </FormGroup>
+
+          <!-- `role="alert"`, que pone el aviso de error de la librería: se
+               anuncia en cuanto aparece, aunque el foco ya haya vuelto al campo. -->
+          <div v-if="error" id="lock-error">
+            <AlertMessage tone="error" icon="auto">
+              <span class="break-words">{{ error }}</span>
+            </AlertMessage>
+          </div>
+
+          <ActionButton
+            type="submit"
+            variant="primary"
+            full-width
+            :disabled="!password"
+            :loading="working"
+            :label="working ? t('lock.checking') : t('lock.unlock')"
+          />
+        </form>
+
+        <!-- El reproductor sólo aparece si algo está sonando: en silencio, esta
+             pantalla no tiene por qué decir nada. -->
+        <div
+          v-if="showsForm && playback"
+          data-surface="player"
+          class="flex w-full max-w-md min-w-0 items-center gap-3 rounded-corner-l border border-ui-line bg-ui-shell px-4 py-2 shadow-surface-s backdrop-blur-md"
+        >
+          <div class="min-w-0 flex-1">
+            <p class="truncate text-label-m text-tx-main" :title="playback.title">
+              {{ playback.title }}
+            </p>
+            <p
+              v-if="playback.artist"
+              class="truncate text-body-xs text-tx-muted"
+              :title="playback.artist"
+            >
+              {{ playback.artist }}
+            </p>
+          </div>
+          <ActionButton
+            label=""
+            variant="ghost"
+            icon="media-playback-pause-symbolic"
+            :icon-alt="t('lock.pause')"
+            :title="t('lock.pause')"
+            @click="sendToPlayer('playpause')"
+          />
+          <ActionButton
+            label=""
+            variant="ghost"
+            icon="media-skip-forward-symbolic"
+            :icon-alt="t('lock.next')"
+            :title="t('lock.next')"
+            @click="sendToPlayer('next')"
           />
         </div>
-
-        <p v-if="capsLock" class="text-status-warning text-sm flex items-center gap-2">
-          <span aria-hidden="true">⇧</span>{{ t("lock.capsLock") }}
-        </p>
-
-        <p
-          v-if="error"
-          role="alert"
-          class="text-status-error text-sm bg-status-error/10 p-2 rounded-corner border border-status-error/30"
-        >
-          {{ error }}
-        </p>
-
-        <button
-          type="submit"
-          :disabled="working || !password"
-          class="bg-primary text-tx-on-primary font-semibold py-2 px-4 rounded-corner hover:bg-secondary disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-sm"
-        >
-          {{ working ? t("lock.checking") : t("lock.unlock") }}
-        </button>
-      </form>
-
-      <!-- El reproductor sólo aparece si algo está sonando: en silencio, esta
-           pantalla no tiene por qué decir nada. -->
-      <div
-        v-if="esLaPantallaDelMouse && reproduccion"
-        class="flex items-center gap-3 rounded-corner bg-ui-bg/70 border border-ui-border px-4 py-2 w-full max-w-md"
-      >
-        <div class="min-w-0 flex-1">
-          <p class="truncate text-sm font-medium text-tx-main">{{ reproduccion.titulo }}</p>
-          <p v-if="reproduccion.artista" class="truncate text-xs text-tx-muted">
-            {{ reproduccion.artista }}
-          </p>
-        </div>
-        <button
-          type="button"
-          class="flex h-8 w-8 items-center justify-center rounded-corner hover:bg-ui-surface"
-          :title="t('lock.pause')"
-          :aria-label="t('lock.pause')"
-          @click="ordenarAlReproductor('playpause')"
-        >
-          <LockIcon name="media-playback-pause" :size="18" />
-        </button>
-        <button
-          type="button"
-          class="flex h-8 w-8 items-center justify-center rounded-corner hover:bg-ui-surface"
-          :title="t('lock.next')"
-          :aria-label="t('lock.next')"
-          @click="ordenarAlReproductor('next')"
-        >
-          <LockIcon name="media-skip-forward" :size="18" />
-        </button>
       </div>
     </div>
   </main>

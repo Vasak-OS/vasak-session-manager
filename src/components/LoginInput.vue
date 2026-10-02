@@ -2,6 +2,12 @@
 import { computed, nextTick, onMounted, ref, watch } from "vue";
 import { invoke } from "@tauri-apps/api/core";
 import { useI18n } from "@vasakgroup/tauri-plugin-i18n";
+import {
+  ActionButton,
+  AlertMessage,
+  FormGroup,
+  TextInput,
+} from "@vasakgroup/vue-libvasak";
 import { useGreeter } from "@/composables/useGreeter";
 
 const { t } = useI18n();
@@ -19,8 +25,10 @@ const error = ref("");
 const loading = ref(false);
 const capsLock = ref(false);
 
-const passwordField = ref<HTMLInputElement | null>(null);
-const usernameField = ref<HTMLInputElement | null>(null);
+/** Los campos de la librería exponen `focus()`, que dice si llegó. */
+type FocusableField = { focus: () => boolean };
+const passwordField = ref<FocusableField | null>(null);
+const usernameField = ref<FocusableField | null>(null);
 
 const keyboardHint = computed(() =>
   keyboard.value.layouts.length > 0
@@ -32,6 +40,12 @@ const keyboardHint = computed(() =>
  * the mouse first — the whole screen exists to accept one password. */
 const focusEntry = async () => {
   await nextTick();
+  // TODO(2.4.0): `TextInput` no declara `spellcheck` ni `autocapitalize`, y con
+  // `strictTemplates` no se pueden pasar. Un nombre de cuenta no es una palabra:
+  // sin esto el corrector lo subraya y el teclado en pantalla le pone mayúscula.
+  const name = document.getElementById("username-field");
+  name?.setAttribute("spellcheck", "false");
+  name?.setAttribute("autocapitalize", "none");
   if (usingManualEntry.value && !manualUsername.value) {
     usernameField.value?.focus();
   } else {
@@ -51,13 +65,38 @@ const updateCapsLock = (event: KeyboardEvent) => {
   capsLock.value = event.getModifierState("CapsLock");
 };
 
+/**
+ * Escape borra lo escrito en la contraseña, como en cualquier pantalla de
+ * inicio: es la forma de empezar de nuevo sin borrar letra por letra algo que
+ * no se ve. No envía nada y el foco se queda en el campo.
+ */
+const clearPassword = (event: KeyboardEvent) => {
+  if (event.key !== "Escape") return;
+  event.preventDefault();
+  password.value = "";
+  error.value = "";
+};
+
+const onPasswordKey = (event: KeyboardEvent) => {
+  updateCapsLock(event);
+  clearPassword(event);
+};
+
 const login = async () => {
+  // Un segundo Enter mientras greetd contesta no manda la contraseña otra vez:
+  // greetd tiene una sola conversación abierta, y la segunda llegaría como
+  // respuesta a una pregunta que nadie hizo.
+  if (loading.value) return;
   if (!username.value) {
     error.value = t("login.usernameRequired");
+    await nextTick();
+    usernameField.value?.focus();
     return;
   }
   if (!password.value) {
     error.value = t("login.passwordRequired");
+    await nextTick();
+    passwordField.value?.focus();
     return;
   }
   if (!selectedSession.value) {
@@ -93,73 +132,66 @@ const login = async () => {
 </script>
 
 <template>
-  <form class="flex flex-col gap-4 w-full" @submit.prevent="login">
-    <div v-if="usingManualEntry">
-      <label
-        for="username-field"
-        class="text-xs font-semibold text-tx-main uppercase mb-1 block"
-      >
-        {{ t("login.username") }}
-      </label>
-      <input
-        id="username-field"
+  <form class="flex w-full min-w-0 flex-col gap-4" @submit.prevent="login">
+    <FormGroup
+      v-if="usingManualEntry"
+      :label="t('login.username')"
+      variant="eyebrow"
+      html-for="username-field"
+      v-slot="{ id }"
+    >
+      <TextInput
+        :id="id"
         ref="usernameField"
         v-model="manualUsername"
-        type="text"
-        autocapitalize="none"
         autocomplete="off"
-        spellcheck="false"
         :placeholder="t('login.usernamePlaceholder')"
-        class="p-2 border border-ui-border rounded-corner w-full bg-ui-bg/80 text-tx-main focus:ring-2 focus:ring-primary focus:border-transparent"
       />
-    </div>
+    </FormGroup>
 
-    <div>
-      <label
-        for="password-field"
-        class="text-xs font-semibold text-tx-main uppercase mb-1 block"
-      >
-        {{ t("login.password") }}
-      </label>
-      <input
-        id="password-field"
+    <!-- TODO(2.4.0): el campo de contraseña con «mostrar» pasa a la librería.
+         Bloq Mayús va como ayuda del campo: se ve debajo y además se anuncia al
+         llegar al campo, que es cuando sirve. -->
+    <FormGroup
+      :label="t('login.password')"
+      variant="eyebrow"
+      html-for="password-field"
+      :help="capsLock ? t('login.capsLock') : ''"
+      v-slot="{ id, describedBy }"
+    >
+      <TextInput
+        :id="id"
         ref="passwordField"
         v-model="password"
         type="password"
         autocomplete="current-password"
         :placeholder="t('login.passwordPlaceholder')"
-        @keydown="updateCapsLock"
+        :invalid="Boolean(error)"
+        :described-by="[describedBy, error ? 'login-error' : ''].filter(Boolean).join(' ') || undefined"
+        @keydown="onPasswordKey"
         @keyup="updateCapsLock"
-        class="p-2 border border-ui-border rounded-corner w-full bg-ui-bg/80 text-tx-main focus:ring-2 focus:ring-primary focus:border-transparent"
       />
-    </div>
+    </FormGroup>
 
-    <p
-      v-if="capsLock"
-      class="text-status-warning text-sm flex items-center gap-2"
-    >
-      <span aria-hidden="true">⇧</span>{{ t("login.capsLock") }}
-    </p>
-
-    <p v-if="keyboardHint" class="text-tx-muted text-xs">
+    <p v-if="keyboardHint" class="text-body-xs text-tx-muted">
       {{ keyboardHint }}
       <span v-if="keyboard.switchable"> — {{ t("login.keyboardSwitch") }}</span>
     </p>
 
-    <p
-      v-if="error"
-      role="alert"
-      class="text-status-error text-sm bg-status-error/10 p-2 rounded-corner border border-status-error/30 break-words"
-    >
-      {{ error }}
-    </p>
+    <!-- `role="alert"`, que pone el aviso de error de la librería: se anuncia
+         en cuanto aparece, aunque el foco ya haya vuelto al campo. -->
+    <div v-if="error" id="login-error">
+      <AlertMessage tone="error" icon="auto">
+        <span class="break-words">{{ error }}</span>
+      </AlertMessage>
+    </div>
 
-    <button
+    <ActionButton
       type="submit"
-      :disabled="loading"
-      class="bg-primary text-tx-on-primary font-semibold py-2 px-4 rounded-corner hover:bg-secondary disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-sm"
-    >
-      {{ loading ? t("login.authenticating") : t("login.signIn") }}
-    </button>
+      variant="primary"
+      full-width
+      :loading="loading"
+      :label="loading ? t('login.authenticating') : t('login.signIn')"
+    />
   </form>
 </template>

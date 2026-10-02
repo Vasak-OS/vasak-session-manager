@@ -24,60 +24,60 @@ const ESPERA: Duration = Duration::from_millis(400);
 
 /// Una aplicación con notificaciones sin leer.
 #[derive(Debug, Serialize, PartialEq)]
-pub struct AplicacionConAvisos {
+pub struct AppNotifications {
     /// El nombre del icono en el tema, tal como lo mandó la aplicación.
-    pub icono: String,
+    pub icon: String,
     /// Para el texto alternativo. No es el contenido de la notificación.
-    pub aplicacion: String,
-    pub cuantas: u32,
+    pub app: String,
+    pub count: u32,
 }
 
 /// Lo que suena, si algo suena.
 #[derive(Debug, Serialize, PartialEq)]
-pub struct Reproduccion {
+pub struct Playback {
     /// El bus del reproductor, para mandarle las órdenes al mismo.
-    pub reproductor: String,
-    pub titulo: String,
-    pub artista: String,
-    pub sonando: bool,
+    pub player: String,
+    pub title: String,
+    pub artist: String,
+    pub playing: bool,
 }
 
 /// Agrupa por aplicación las notificaciones sin leer que devuelve el demonio.
 ///
 /// Separado de la consulta para poder probarlo: lo que llega es el JSON de
 /// `org.vasak.Notifications.get_unread`.
-pub fn agrupar_avisos(json: &str) -> Vec<AplicacionConAvisos> {
+pub fn group_notifications(json: &str) -> Vec<AppNotifications> {
     let items: Vec<serde_json::Value> = serde_json::from_str(json).unwrap_or_default();
-    let mut grupos: Vec<AplicacionConAvisos> = Vec::new();
+    let mut groups: Vec<AppNotifications> = Vec::new();
 
     for item in items {
-        let aplicacion = item
+        let app = item
             .get("app_name")
             .and_then(|v| v.as_str())
             .unwrap_or("")
             .to_string();
-        if aplicacion.is_empty() {
+        if app.is_empty() {
             continue;
         }
 
-        let icono = item
+        let icon = item
             .get("app_icon")
             .and_then(|v| v.as_str())
-            .filter(|icono| !icono.is_empty())
+            .filter(|icon| !icon.is_empty())
             .unwrap_or("dialog-information")
             .to_string();
 
-        match grupos.iter_mut().find(|g| g.aplicacion == aplicacion) {
-            Some(grupo) => grupo.cuantas += 1,
-            None => grupos.push(AplicacionConAvisos {
-                icono,
-                aplicacion,
-                cuantas: 1,
+        match groups.iter_mut().find(|group| group.app == app) {
+            Some(group) => group.count += 1,
+            None => groups.push(AppNotifications {
+                icon,
+                app,
+                count: 1,
             }),
         }
     }
 
-    grupos
+    groups
 }
 
 fn conexion() -> Option<Connection> {
@@ -86,12 +86,12 @@ fn conexion() -> Option<Connection> {
 
 /// Las aplicaciones con avisos sin leer, o una lista vacía.
 #[tauri::command]
-pub fn lock_notifications() -> Vec<AplicacionConAvisos> {
+pub fn lock_notifications() -> Vec<AppNotifications> {
     static EN_VUELO: AtomicBool = AtomicBool::new(false);
     con_espera(&EN_VUELO, avisos_sin_leer).unwrap_or_default()
 }
 
-fn avisos_sin_leer() -> Vec<AplicacionConAvisos> {
+fn avisos_sin_leer() -> Vec<AppNotifications> {
     let Some(conexion) = conexion() else {
         return Vec::new();
     };
@@ -110,7 +110,7 @@ fn avisos_sin_leer() -> Vec<AplicacionConAvisos> {
         Ok(respuesta) => respuesta
             .body()
             .deserialize::<String>()
-            .map(|json| agrupar_avisos(&json))
+            .map(|json| group_notifications(&json))
             .unwrap_or_default(),
         // Sin demonio de notificaciones no hay nada que mostrar, y no es un
         // error de esta pantalla.
@@ -123,16 +123,16 @@ fn avisos_sin_leer() -> Vec<AplicacionConAvisos> {
 /// «Sonando» y no «abierto»: un reproductor en pausa desde hace horas no es
 /// contexto de esta sesión, es ruido en una pantalla que tiene que decir poco.
 #[tauri::command]
-pub fn lock_media() -> Option<Reproduccion> {
+pub fn lock_media() -> Option<Playback> {
     static EN_VUELO: AtomicBool = AtomicBool::new(false);
     con_espera(&EN_VUELO, reproduccion_actual).flatten()
 }
 
-fn reproduccion_actual() -> Option<Reproduccion> {
+fn reproduccion_actual() -> Option<Playback> {
     let conexion = conexion()?;
     for bus in reproductores(&conexion) {
         if let Some(reproduccion) = leer_reproductor(&conexion, &bus) {
-            if reproduccion.sonando {
+            if reproduccion.playing {
                 return Some(reproduccion);
             }
         }
@@ -198,7 +198,7 @@ fn reproductores(conexion: &Connection) -> Vec<String> {
         .collect()
 }
 
-fn leer_reproductor(conexion: &Connection, bus: &str) -> Option<Reproduccion> {
+fn leer_reproductor(conexion: &Connection, bus: &str) -> Option<Playback> {
     let proxy = reproductor_proxy(conexion, bus)?;
 
     let estado: String = proxy.get_property("PlaybackStatus").ok()?;
@@ -224,11 +224,11 @@ fn leer_reproductor(conexion: &Connection, bus: &str) -> Option<Reproduccion> {
         }
     };
 
-    Some(Reproduccion {
-        reproductor: bus.to_string(),
-        titulo: texto("xesam:title"),
-        artista: primero("xesam:artist"),
-        sonando: estado == "Playing",
+    Some(Playback {
+        player: bus.to_string(),
+        title: texto("xesam:title"),
+        artist: primero("xesam:artist"),
+        playing: estado == "Playing",
     })
 }
 
@@ -284,17 +284,17 @@ mod pruebas {
         ]"#;
 
         assert_eq!(
-            agrupar_avisos(json),
+            group_notifications(json),
             vec![
-                AplicacionConAvisos {
-                    icono: "telegram".into(),
-                    aplicacion: "Telegram".into(),
-                    cuantas: 2
+                AppNotifications {
+                    icon: "telegram".into(),
+                    app: "Telegram".into(),
+                    count: 2
                 },
-                AplicacionConAvisos {
-                    icono: "discord".into(),
-                    aplicacion: "Discord".into(),
-                    cuantas: 1
+                AppNotifications {
+                    icon: "discord".into(),
+                    app: "Discord".into(),
+                    count: 1
                 },
             ]
         );
@@ -306,7 +306,7 @@ mod pruebas {
         // una pantalla que puede estar mirando cualquiera.
         let json = r#"[{"app_name":"Telegram","app_icon":"telegram",
                         "summary":"Código 123456","body":"No se lo pases a nadie"}]"#;
-        let serializado = serde_json::to_string(&agrupar_avisos(json)).unwrap();
+        let serializado = serde_json::to_string(&group_notifications(json)).unwrap();
 
         assert!(!serializado.contains("123456"), "{serializado}");
         assert!(!serializado.contains("No se lo pases"), "{serializado}");
@@ -325,11 +325,11 @@ mod pruebas {
                         "timestamp":1787900000}]"#;
 
         assert_eq!(
-            agrupar_avisos(json),
-            vec![AplicacionConAvisos {
-                icono: "telegram-desktop".into(),
-                aplicacion: "Telegram Desktop".into(),
-                cuantas: 1
+            group_notifications(json),
+            vec![AppNotifications {
+                icon: "telegram-desktop".into(),
+                app: "Telegram Desktop".into(),
+                count: 1
             }]
         );
     }
@@ -337,19 +337,46 @@ mod pruebas {
     #[test]
     fn una_aplicacion_sin_icono_igual_se_muestra() {
         let json = r#"[{"app_name":"Cosa","app_icon":""}]"#;
-        let grupos = agrupar_avisos(json);
-        assert_eq!(grupos.len(), 1);
-        assert_eq!(grupos[0].icono, "dialog-information");
+        let groups = group_notifications(json);
+        assert_eq!(groups.len(), 1);
+        assert_eq!(groups[0].icon, "dialog-information");
+    }
+
+    #[test]
+    fn los_nombres_que_cruzan_a_la_pantalla_son_los_que_lee() {
+        // `LockView.vue` lee `icon`, `app` y `count`, y `player`, `title`,
+        // `artist` y `playing`: si un campo cambia de nombre de un lado y no del
+        // otro, la pantalla dibuja huecos sin ningún error. Lo mismo comprueba
+        // `tests/lock-view.test.ts` del lado de la página.
+        let avisos = serde_json::to_value(group_notifications(
+            r#"[{"app_name":"Telegram","app_icon":"telegram"}]"#,
+        ))
+        .unwrap();
+        assert_eq!(
+            avisos,
+            serde_json::json!([{"icon": "telegram", "app": "Telegram", "count": 1}])
+        );
+
+        let sonando = serde_json::to_value(Playback {
+            player: "org.mpris.MediaPlayer2.x".into(),
+            title: "Tema".into(),
+            artist: "Alguien".into(),
+            playing: true,
+        })
+        .unwrap();
+        let mut campos: Vec<_> = sonando.as_object().unwrap().keys().cloned().collect();
+        campos.sort();
+        assert_eq!(campos, ["artist", "player", "playing", "title"]);
     }
 
     #[test]
     fn lo_que_no_es_una_lista_no_rompe_nada() {
         // El demonio puede no estar, o contestar cualquier cosa: la pantalla de
         // bloqueo tiene que dibujarse igual.
-        assert!(agrupar_avisos("").is_empty());
-        assert!(agrupar_avisos("no soy json").is_empty());
-        assert!(agrupar_avisos("{}").is_empty());
-        assert!(agrupar_avisos(r#"[{"sin":"nombre"}]"#).is_empty());
+        assert!(group_notifications("").is_empty());
+        assert!(group_notifications("no soy json").is_empty());
+        assert!(group_notifications("{}").is_empty());
+        assert!(group_notifications(r#"[{"sin":"nombre"}]"#).is_empty());
     }
 
     #[test]
