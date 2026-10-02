@@ -384,8 +384,14 @@ mod pruebas {
         // El nombre del bus llega desde la página. Sin este cerco, la pantalla
         // de bloqueo sería un puente para llamar a cualquier servicio de la
         // sesión.
-        assert!(!lock_media_action("org.freedesktop.login1".into(), "next".into()));
-        assert!(!lock_media_action("org.vasak.Notifications".into(), "playpause".into()));
+        assert!(!lock_media_action(
+            "org.freedesktop.login1".into(),
+            "next".into()
+        ));
+        assert!(!lock_media_action(
+            "org.vasak.Notifications".into(),
+            "playpause".into()
+        ));
         // Y sólo esos dos métodos.
         assert!(!lock_media_action(
             "org.mpris.MediaPlayer2.vlc".into(),
@@ -403,13 +409,22 @@ mod pruebas {
         let (suelta, espera) = std::sync::mpsc::channel::<()>();
 
         // La primera se cuelga esperando el canal, así que vence el plazo.
-        assert_eq!(con_espera(&EN_VUELO, move || { let _ = espera.recv(); 1u8 }), None);
+        assert_eq!(
+            con_espera(&EN_VUELO, move || {
+                let _ = espera.recv();
+                1u8
+            }),
+            None
+        );
         assert!(EN_VUELO.load(Ordering::SeqCst), "sigue en vuelo");
 
         // La segunda no arranca ningún hilo: devuelve `None` en el acto.
         let antes = std::time::Instant::now();
         assert_eq!(con_espera(&EN_VUELO, || 2u8), None);
-        assert!(antes.elapsed() < ESPERA, "no esperó el plazo, así que no lanzó nada");
+        assert!(
+            antes.elapsed() < ESPERA,
+            "no esperó el plazo, así que no lanzó nada"
+        );
 
         // Y cuando la primera termina, el testigo queda libre para la siguiente.
         drop(suelta);
@@ -418,7 +433,10 @@ mod pruebas {
             std::thread::sleep(std::time::Duration::from_millis(10));
             intentos += 1;
         }
-        assert!(!EN_VUELO.load(Ordering::SeqCst), "el testigo tiene que liberarse");
+        assert!(
+            !EN_VUELO.load(Ordering::SeqCst),
+            "el testigo tiene que liberarse"
+        );
         assert_eq!(con_espera(&EN_VUELO, || 3u8), Some(3));
     }
 
