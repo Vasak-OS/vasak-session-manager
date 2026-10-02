@@ -1,50 +1,26 @@
 <script setup lang="ts">
-import { onMounted, onUnmounted, ref } from "vue";
-
-const now = ref(new Date());
-let alignment: number | undefined;
-let timer: number | undefined;
-
-const time = () =>
-  now.value.toLocaleTimeString(undefined, {
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-
-const date = () =>
-  now.value.toLocaleDateString(undefined, {
-    weekday: "long",
-    day: "numeric",
-    month: "long",
-  });
-
-onMounted(() => {
-  // Aligned to the next minute, then once a minute: a display that only shows
-  // hours and minutes has no reason to wake the machine every second.
-  const toNextMinute = 60_000 - (Date.now() % 60_000);
-  alignment = window.setTimeout(() => {
-    now.value = new Date();
-    timer = window.setInterval(() => (now.value = new Date()), 60_000);
-  }, toNextMinute);
-});
-
-onUnmounted(() => {
-  if (alignment !== undefined) window.clearTimeout(alignment);
-  if (timer !== undefined) window.clearInterval(timer);
-});
+/**
+ * El reloj del saludo y de la pantalla de bloqueo: el `ClockDisplay` de la
+ * librería sobre una placa translúcida.
+ *
+ * La placa es lo único propio. Va sobre el fondo de pantalla, que puede ser un
+ * video, y desenfoca lo que tiene detrás (`shell-blur`): estas dos pantallas no
+ * tienen a Wayfire debajo, así que el desenfoque lo pone la página (decisión
+ * del usuario, 02/10/2026).
+ *
+ * El ancho es fijo y no el del contenido porque `ClockDisplay` es contenedor
+ * (`@container`): no aporta ancho propio, y la hora de 60 px (`display-l`)
+ * aparece recién cuando el reloj tiene 20rem. 22rem son esos 20 más el margen;
+ * en una pantalla más angosta la placa se achica y la hora baja a 48.
+ */
+import { ClockDisplay } from "@vasakgroup/vue-libvasak";
 </script>
 
 <template>
-  <!-- El único texto que va directo sobre el fondo, y el fondo puede ser un
-       video: la sombra es lo que lo mantiene legible cuando pasa un cuadro
-       claro, sin tener que oscurecer más la foto de todo el mundo. -->
-  <div class="text-center select-none drop-shadow-md">
-    <div class="text-6xl font-light text-tx-main tabular-nums">{{ time() }}</div>
-    <!-- Only the first letter: `capitalize` would turn "10 de agosto" into
-         "10 De Agosto", which is wrong in every language that lowercases its
-         month names. -->
-    <div class="text-sm text-tx-muted first-letter:uppercase mt-1">
-      {{ date() }}
-    </div>
+  <div
+    data-surface="clock"
+    class="w-[22rem] max-w-full rounded-corner-xl border border-ui-line bg-ui-shell px-4 py-3 shadow-surface-s shell-blur"
+  >
+    <ClockDisplay size="lg" />
   </div>
 </template>

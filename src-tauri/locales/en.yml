@@ -20,7 +20,11 @@ login:
   passwordRequired: Type your password
   sessionRequired: Choose a session
 
+password:
+  show: Show password
+  hide: Hide password
 power:
+  title: Power
   suspend: Suspend
   reboot: Restart
   poweroff: Shut down
