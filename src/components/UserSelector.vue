@@ -1,79 +1,66 @@
 <script setup lang="ts">
+/**
+ * Las cuentas del saludo: el `OptionGroup` de la librería en forma de tarjeta,
+ * con el avatar de cada una. Es un grupo de opciones de verdad (`radiogroup`):
+ * las flechas pasan de una cuenta a otra y el lector dice cuál está elegida.
+ */
 import { useI18n } from "@vasakgroup/tauri-plugin-i18n";
+import { OptionGroup, type OptionGroupOption } from "@vasakgroup/vue-libvasak";
+import { computed } from "vue";
 import { displayName, useGreeter } from "@/composables/useGreeter";
-import type { SystemUser } from "@/types/greeter";
 
 const { t } = useI18n();
 const { users, selectedUser, usingManualEntry, selectUser, useManualEntry } =
   useGreeter();
 
-/** Initial used when the account has no picture. */
-const initial = (user: SystemUser) =>
-  displayName(user).charAt(0).toUpperCase();
+/** El valor de «Otra cuenta…»: ningún nombre de cuenta puede empezar con «:». */
+const MANUAL = ":manual";
+
+const options = computed<OptionGroupOption<string>[]>(() => [
+  ...users.value.map((user) => ({
+    value: user.name,
+    label: displayName(user),
+    description: `@${user.name}`,
+    avatar: user.avatar,
+    avatarName: displayName(user),
+  })),
+  // Always available: an account can exist without being enumerable (LDAP
+  // without enumeration, a hidden administrator), and with no users at all
+  // this is the only way in.
+  { value: MANUAL, label: t("login.otherUser"), icon: "avatar-default" },
+]);
+
+const chosen = computed<string | null>({
+  get: () =>
+    usingManualEntry.value ? MANUAL : (selectedUser.value?.name ?? null),
+  set: (value) => {
+    if (value === MANUAL) {
+      useManualEntry();
+      return;
+    }
+    const user = users.value.find((candidate) => candidate.name === value);
+    if (user) selectUser(user);
+  },
+});
 </script>
 
 <template>
-  <div class="flex flex-col gap-2 w-full">
-    <h3 class="text-sm font-semibold text-primary mb-2 uppercase">
+  <div class="flex w-full min-w-0 flex-col gap-2">
+    <!-- Atenuado y no en el primario: el acento es para lo que actúa, y el
+         primario de fábrica sobre la tarjeta clara no llega a 4,5:1. -->
+    <h3 class="mb-2 text-label-xs font-semibold uppercase tracking-wider text-tx-muted">
       {{ t("login.selectUser") }}
     </h3>
 
-    <p v-if="users.length === 0" class="text-tx-muted text-sm">
+    <p v-if="users.length === 0" class="text-body-s text-tx-muted">
       {{ t("login.noUsers") }}
     </p>
 
-    <button
-      v-for="user in users"
-      :key="user.uid"
-      type="button"
-      @click="selectUser(user)"
-      class="p-3 border rounded-corner cursor-pointer hover:bg-ui-surface transition-colors flex items-center gap-4 text-left"
-      :class="
-        !usingManualEntry && selectedUser?.uid === user.uid
-          ? 'bg-secondary/30 border-primary ring-1 ring-secondary'
-          : 'border-ui-border'
-      "
-    >
-      <img
-        v-if="user.avatar"
-        :src="user.avatar"
-        alt=""
-        class="w-10 h-10 rounded-full object-cover shrink-0"
-      />
-      <div
-        v-else
-        class="w-10 h-10 bg-primary rounded-full flex items-center justify-center text-tx-on-primary font-bold shrink-0"
-      >
-        {{ initial(user) }}
-      </div>
-
-      <div class="min-w-0">
-        <div class="font-bold text-tx-main truncate">
-          {{ displayName(user) }}
-        </div>
-        <div class="text-xs text-tx-muted truncate">@{{ user.name }}</div>
-      </div>
-    </button>
-
-    <!-- Always available: an account can exist without being enumerable
-         (LDAP without enumeration, a hidden administrator), and with no users
-         at all this is the only way in. -->
-    <button
-      type="button"
-      @click="useManualEntry()"
-      class="p-3 border rounded-corner cursor-pointer hover:bg-ui-surface transition-colors flex items-center gap-4 text-left"
-      :class="
-        usingManualEntry
-          ? 'bg-secondary/30 border-primary ring-1 ring-secondary'
-          : 'border-ui-border'
-      "
-    >
-      <div
-        class="w-10 h-10 rounded-full border border-dashed border-ui-border flex items-center justify-center text-tx-muted shrink-0"
-      >
-        ?
-      </div>
-      <div class="font-bold text-tx-main">{{ t("login.otherUser") }}</div>
-    </button>
+    <OptionGroup
+      v-model="chosen"
+      :options="options"
+      :label="t('login.selectUser')"
+      variant="card"
+    />
   </div>
 </template>
