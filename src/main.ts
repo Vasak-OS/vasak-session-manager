@@ -47,6 +47,39 @@ if (!isLock) void loadAppearance();
 const app = createApp(isLock ? LockView : App);
 app.use(createPinia());
 
-I18n.getInstance().load();
+// Cargar traducciones con reintentos para mejor experiencia de usuario.
+// Un intento que falla se reintenta, pero la espera total sigue acotada: un
+// backend colgado tiene que dar una pantalla con las claves a la vista, no una
+// pantalla en blanco para siempre.
+async function cargarTraducciones(): Promise<void> {
+	const MAX_INTENTOS = 3;
+	const ESPERA_BASE_MS = 500;
+	const ESPERA_MAX_MS = 2000;
+	const PLAZO_TOTAL_MS = 3000;
+
+	const intentar = async () => {
+		for (let intento = 0; intento < MAX_INTENTOS; intento++) {
+			try {
+				await I18n.getInstance().load();
+				return;
+			} catch (error) {
+				console.error(
+					`No se pudieron cargar las traducciones (intento ${intento + 1}/${MAX_INTENTOS}):`,
+					error
+				);
+				if (intento === MAX_INTENTOS - 1) return;
+				const espera = Math.min(ESPERA_BASE_MS * 2 ** intento, ESPERA_MAX_MS);
+				await new Promise((resolve) => setTimeout(resolve, espera));
+			}
+		}
+	};
+
+	await Promise.race([
+		intentar(),
+		new Promise((resolve) => setTimeout(resolve, PLAZO_TOTAL_MS)),
+	]);
+}
+
+await cargarTraducciones();
 
 app.mount("#app");
