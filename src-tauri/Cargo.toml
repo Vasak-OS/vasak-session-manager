@@ -35,6 +35,13 @@ path = "src/config_migrate_main.rs"
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 
+[features]
+# El bloqueo de pantalla enlaza gtk-session-lock (ver `src/lock/session_lock.rs`).
+# Por omisión va; el CI, en Ubuntu, que no empaqueta la biblioteca, prueba con
+# `--no-default-features`.
+default = ["session-lock"]
+session-lock = []
+
 [dependencies]
 # Los directorios base del estándar: la regla de que una variable relativa o
 # vacía se ignora vive ahí y no en una copia acá.
