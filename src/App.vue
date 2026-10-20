@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { invoke } from "@tauri-apps/api/core";
 import { computed, onMounted } from "vue";
 import { useI18n } from "@vasakgroup/tauri-plugin-i18n";
 import { Avatar } from "@vasakgroup/vue-libvasak";
@@ -72,6 +73,8 @@ const onVideoError = () => {
   releaseBackgroundVideo();
 };
 
+// Afinar el WebKit de la ventana para bajar su consumo (ver commands/webkit.rs).
+onMounted(() => void invoke("tune_webview").catch(() => {}));
 onMounted(load);
 </script>
 

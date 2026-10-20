@@ -1,6 +1,6 @@
 [package]
 name = "vasak-session-manager"
-version = "0.9.1"
+version = "0.9.2"
 description = "VasakOS session manager (display manager / greeter)"
 authors = ["Vasak Group", "Joaquin (Pato) Decima"]
 edition = "2021"
@@ -58,6 +58,9 @@ tauri-plugin-vicons = "2"
 gtk = "0.18"
 gdk = "0.18"
 glib = "0.18"
+# Afinado del WebKit de la ventana (ver src/commands/webkit.rs). La 2.0 es la que
+# ya enlaza Tauri vía wry; fijarla acá no mete una segunda copia.
+webkit2gtk = "2.0"
 pam = "0.8"
 zeroize = "1"
 # Para leer las notificaciones sin leer y el reproductor. La API bloqueante
