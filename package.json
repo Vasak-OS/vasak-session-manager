@@ -1,7 +1,7 @@
 {
 	"name": "vasak-session-manager",
 	"private": true,
-	"version": "0.9.1",
+	"version": "0.9.2",
 	"type": "module",
 	"scripts": {
 		"dev": "vite",
@@ -13,7 +13,7 @@
 	"dependencies": {
 		"@tailwindcss/vite": "^4.3.3",
 		"@tauri-apps/api": "^2.12.1",
-		"@vasakgroup/plugin-config-manager": "^2.12.1",
+		"@vasakgroup/plugin-config-manager": "^2.13.0",
 		"@vasakgroup/plugin-vicons": "^2.2.2",
 		"@vasakgroup/tauri-plugin-i18n": "^2.3.1",
 		"@vasakgroup/vue-libvasak": "^2.18.0",
