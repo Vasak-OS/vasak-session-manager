@@ -1,6 +1,6 @@
 [package]
 name = "vasak-session-manager"
-version = "0.9.1"
+version = "0.9.2"
 description = "VasakOS session manager (display manager / greeter)"
 authors = ["Vasak Group", "Joaquin (Pato) Decima"]
 edition = "2021"
@@ -52,7 +52,7 @@ serde_json = "1"
 base64 = "0.23"
 libc = "0.2.190"
 tauri-plugin-i18n-vsk = "2.1.1"
-tauri-plugin-config-manager = "2"
+tauri-plugin-config-manager = "2.13"
 # Los iconos de las aplicaciones con avisos: hay que resolverlos contra el tema.
 tauri-plugin-vicons = "2"
 gtk = "0.18"
