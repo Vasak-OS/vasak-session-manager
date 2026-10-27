@@ -13,7 +13,21 @@
 //! the webview cannot read `file://` from its own origin, and opening the
 //! filesystem to a screen that handles passwords is a poor trade.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+
+/// Tope del fondo del bloqueo, el mismo que el del greeter
+/// (`commands::background::MAX_BYTES`): el `data:` URL carga el archivo entero en
+/// memoria mientras la pantalla está a la vista, y una imagen propia sin límite
+/// podría agotarla con la sesión bloqueada.
+const MAX_BYTES: u64 = 8 * 1024 * 1024;
+
+/// Un archivo que se puede usar como fondo: existe, no está vacío y no pasa el
+/// tope. Se mira el tamaño antes de leerlo, para no cargar en memoria algo
+/// enorme sólo para descartarlo.
+fn within_limit(path: &Path) -> bool {
+    std::fs::metadata(path)
+        .is_ok_and(|meta| meta.is_file() && meta.len() > 0 && meta.len() <= MAX_BYTES)
+}
 
 /// Lo que la sección `lock` elige como fondo. Sin esa sección, el del escritorio,
 /// como siempre.
@@ -79,8 +93,11 @@ pub fn lock_background() -> Option<String> {
         .chain(std::iter::once(PathBuf::from(
             "/usr/share/backgrounds/vasakos/default.jpg",
         )))
-        .find(|path| path.is_file())
-        .and_then(|path| crate::users::image_data_url(&path))
+        .filter(|path| within_limit(path))
+        // `find_map` y no `find`: si la imagen propia existe pero no es un formato
+        // que la página dibuje, hay que seguir hasta el respaldo en vez de quedarse
+        // con ella y devolver `null`.
+        .find_map(|path| crate::users::image_data_url(&path))
 }
 
 #[cfg(test)]
@@ -231,5 +248,85 @@ mod pruebas {
 
         assert!(matches!(from_config(), Background::Image(None)));
         let _ = lock_background();
+    }
+
+    /// Una imagen válida (cabecera PNG) de `bytes` de largo, sin llenar la RAM:
+    /// el resto es un hueco del archivo.
+    fn imagen_de(config: &Config, nombre: &str, bytes: u64) -> PathBuf {
+        use std::io::Write;
+        let ruta = config.dir.path().join(nombre);
+        let mut archivo = std::fs::File::create(&ruta).unwrap();
+        archivo.write_all(PNG).unwrap();
+        archivo.set_len(bytes).unwrap();
+        ruta
+    }
+
+    /// El respaldo del sistema, tal como lo vería `lock_background` en esta máquina.
+    fn respaldo_del_sistema() -> Option<String> {
+        crate::users::image_data_url(Path::new("/usr/share/backgrounds/vasakos/default.jpg"))
+    }
+
+    #[test]
+    fn within_limit_acepta_un_archivo_chico_y_el_justo_en_el_tope() {
+        let config = Config::nueva();
+
+        assert!(within_limit(&config.imagen("chica.png", PNG)));
+        assert!(within_limit(&imagen_de(&config, "justa.png", MAX_BYTES)));
+    }
+
+    #[test]
+    fn within_limit_rechaza_lo_que_pasa_el_tope() {
+        let config = Config::nueva();
+
+        assert!(!within_limit(&imagen_de(
+            &config,
+            "enorme.png",
+            MAX_BYTES + 1
+        )));
+    }
+
+    #[test]
+    fn within_limit_rechaza_vacios_inexistentes_y_directorios() {
+        let config = Config::nueva();
+        let vacio = config.dir.path().join("vacio.png");
+        std::fs::write(&vacio, b"").unwrap();
+
+        assert!(!within_limit(&vacio));
+        assert!(!within_limit(&config.dir.path().join("no-existe.png")));
+        assert!(!within_limit(config.dir.path()));
+    }
+
+    #[test]
+    fn una_imagen_propia_valida_pero_enorme_no_se_carga_en_memoria() {
+        let config = Config::nueva();
+        let enorme = imagen_de(&config, "enorme.png", MAX_BYTES + 1);
+        config.escribe(json!({
+            "lock": {"background": {"source": "image", "image": enorme}}
+        }));
+
+        // Lo que haya después (el respaldo del sistema, si existe) no es la imagen
+        // gigante: el respaldo es un .jpg y la gigante es un PNG.
+        let resultado = lock_background();
+        assert!(
+            resultado
+                .as_deref()
+                .is_none_or(|url| !url.starts_with("data:image/png")),
+            "se cargó la imagen enorme"
+        );
+        assert_eq!(resultado, respaldo_del_sistema());
+    }
+
+    #[test]
+    fn una_imagen_propia_que_no_es_imagen_sigue_hasta_el_respaldo() {
+        let config = Config::nueva();
+        let texto = config.imagen("notas.txt", b"esto no es una imagen");
+        assert_eq!(crate::users::image_data_url(&texto), None);
+        config.escribe(json!({
+            "lock": {"background": {"source": "image", "image": texto}}
+        }));
+
+        // Con `find` se quedaba con el .txt y devolvía `null` aunque el respaldo
+        // existiera.
+        assert_eq!(lock_background(), respaldo_del_sistema());
     }
 }
