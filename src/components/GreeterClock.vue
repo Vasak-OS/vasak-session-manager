@@ -14,6 +14,20 @@
  * en una pantalla más angosta la placa se achica y la hora baja a 48.
  */
 import { ClockDisplay } from "@vasakgroup/vue-libvasak";
+
+/**
+ * Opciones del reloj. Los valores por omisión son los de hoy, así que el saludo
+ * —que lo usa sin props— no cambia; la pantalla de bloqueo pasa lo que diga
+ * `lock.clock.*`.
+ */
+withDefaults(
+  defineProps<{
+    hour12?: boolean;
+    showDate?: boolean;
+    size?: "md" | "lg";
+  }>(),
+  { showDate: true, size: "lg" },
+);
 </script>
 
 <template>
@@ -21,6 +35,6 @@ import { ClockDisplay } from "@vasakgroup/vue-libvasak";
     data-surface="clock"
     class="w-[22rem] max-w-full rounded-corner-xl border border-ui-line bg-ui-shell px-4 py-3 shadow-surface-s shell-blur"
   >
-    <ClockDisplay size="lg" />
+    <ClockDisplay :size="size" :show-date="showDate" :hour12="hour12" />
   </div>
 </template>

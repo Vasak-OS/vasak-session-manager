@@ -1,7 +1,7 @@
 {
 	"name": "vasak-session-manager",
 	"private": true,
-	"version": "0.9.2",
+	"version": "0.10.0",
 	"type": "module",
 	"scripts": {
 		"dev": "vite",
@@ -16,7 +16,7 @@
 		"@vasakgroup/plugin-config-manager": "^2.13.0",
 		"@vasakgroup/plugin-vicons": "^2.2.2",
 		"@vasakgroup/tauri-plugin-i18n": "^2.3.1",
-		"@vasakgroup/vue-libvasak": "^2.18.0",
+		"@vasakgroup/vue-libvasak": "^2.21.1",
 		"pinia": "^4.0.3",
 		"vue": "^3.5.43"
 	},
