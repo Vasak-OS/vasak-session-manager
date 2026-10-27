@@ -13,12 +13,24 @@ import {
 } from "@vasakgroup/vue-libvasak";
 import { nextTick, onMounted, ref } from "vue";
 import GreeterClock from "@/components/GreeterClock.vue";
+import { useLockConfig } from "@/composables/useLockConfig";
 import { useLockScreen } from "@/composables/useLockScreen";
 
 const { t } = useI18n();
 
 const { showsForm, notifications, playback, pointerHere, sendToPlayer, start } =
   useLockScreen();
+
+// El aspecto que eligió quien usa el sistema (`lock.*`). Arranca con el de hoy y
+// se actualiza cuando `loadConfig()` llega; nunca toca el campo de contraseña.
+const {
+  hour12,
+  showDate,
+  clockSize,
+  dimBackground,
+  showMedia,
+  showNotifications,
+} = useLockConfig();
 
 const user = ref("");
 const password = ref("");
@@ -125,7 +137,7 @@ const submit = async () => {
       alt=""
       class="fixed inset-0 h-full w-full object-cover"
     />
-    <div v-if="background" class="fixed inset-0 bg-ui-bg/70"></div>
+    <div v-if="background && dimBackground" class="fixed inset-0 bg-ui-bg/70"></div>
 
     <div class="relative flex min-h-full flex-col items-center justify-center p-6">
       <!-- La separación tiene que ser mayor que lo que la foto sobresale del
@@ -133,13 +145,13 @@ const submit = async () => {
            tenga arriba —la fecha, o los avisos—: con gap-10 quedaba 40px y se
            solapaban. -->
       <div class="relative flex w-full flex-col items-center gap-20">
-        <GreeterClock />
+        <GreeterClock :hour12="hour12" :show-date="showDate" :size="clockSize" />
 
         <!-- Qué está esperando la sesión, sin decir qué dice: sólo el icono de
              cada aplicación y cuántos avisos tiene. El contenido no cruza hasta
              una pantalla que puede estar mirando cualquiera. -->
         <ul
-          v-if="showsForm && notifications.length > 0"
+          v-if="showsForm && showNotifications && notifications.length > 0"
           class="flex flex-wrap items-center justify-center gap-3"
           :aria-label="t('lock.notifications')"
         >
@@ -228,7 +240,7 @@ const submit = async () => {
         <!-- El reproductor sólo aparece si algo está sonando: en silencio, esta
              pantalla no tiene por qué decir nada. -->
         <div
-          v-if="showsForm && playback"
+          v-if="showsForm && showMedia && playback"
           data-surface="player"
           class="flex w-full max-w-md min-w-0 items-center gap-3 rounded-corner-l border border-ui-line bg-ui-shell px-4 py-2 shadow-surface-s shell-blur"
         >
