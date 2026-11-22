@@ -85,7 +85,7 @@ pub fn run() {
                 .title("vasak-session-manager")
                 .inner_size(800.0, 600.0)
                 .decorations(false)
-                .background_color(appearance::background_color())
+                .background_color(appearance::greeter_background_color())
                 .build()?;
 
             Ok(())

@@ -135,7 +135,7 @@ fn cover_every_monitor(app: &AppHandle, lock: &SessionLock) -> Result<(), String
                 .title("Vasak lock")
                 .decorations(false)
                 .visible(false)
-                .background_color(crate::appearance::background_color())
+                .background_color(crate::appearance::lock_background_color())
                 .build()
                 .map_err(|e| format!("no se pudo crear la vista del monitor {index}: {e}"))?;
 

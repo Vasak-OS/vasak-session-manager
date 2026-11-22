@@ -130,21 +130,33 @@ pub fn get_appearance() -> Appearance {
     }
 }
 
-/// El fondo del tema activo, para pintar la ventana nativa antes del primer
-/// dibujado del webview.
+/// El fondo con el que se pinta la ventana nativa antes del primer dibujado del
+/// webview, para que no se vea el blanco por omisión de WebKitGTK.
 ///
-/// Sin esto, WebKitGTK muestra su fondo blanco por omisión hasta que la página
-/// pinta: un flash blanco en una pantalla que casi siempre está sobre un fondo
-/// oscuro. El color sale del mismo lugar que `get_appearance` —el esquema de
-/// `/etc` si está, y si no la paleta oscura compilada— para que el fondo nativo
-/// coincida con el que la página termina dibujando.
-pub fn background_color() -> Color {
-    let tema = leer_tema();
-    leer_esquema()
-        .as_ref()
-        .and_then(|esquema| esquema["colors"][&tema]["ui"]["background"].as_str())
+/// `background_color` es el color del tema del esquema, con el fondo compilado
+/// de respaldo. Separado de la lectura de archivos para poder probarlo sin
+/// `/etc`.
+fn resolver_fondo(tema: &str, esquema: Option<&Value>) -> Color {
+    esquema
+        .and_then(|esquema| esquema["colors"][tema]["ui"]["background"].as_str())
         .and_then(hex_a_color)
-        .unwrap_or_else(|| fondo_compilado(&tema))
+        .unwrap_or_else(|| fondo_compilado(tema))
+}
+
+/// Fondo nativo del greeter. El greeter corre sin sesión, así que su tema sale
+/// de `/etc`, igual que `get_appearance`.
+pub fn greeter_background_color() -> Color {
+    resolver_fondo(&leer_tema(), leer_esquema().as_ref())
+}
+
+/// Fondo nativo del bloqueo. La página del lock **no** usa el tema de `/etc`:
+/// `main.ts` la arranca con la clase `dark` y recién después el gestor de
+/// configuración del usuario aplica su esquema, así que el primer cuadro —el
+/// hueco que el fondo nativo tapa— siempre es oscuro. Por eso el nativo es el
+/// oscuro compilado y no `/etc`: con `/etc` en `light` arrancaría casi blanco
+/// bajo una sesión oscura.
+pub fn lock_background_color() -> Color {
+    fondo_compilado("dark")
 }
 
 /// `#rrggbb` a color opaco. Los esquemas guardan el fondo así; cualquier otra
@@ -277,20 +289,52 @@ mod tests {
     }
 
     #[test]
-    fn el_fondo_del_esquema_se_lee_del_tema_activo() {
+    fn el_fondo_sale_del_esquema_segun_el_tema_activo() {
         let esquema = json!({
             "colors": {
                 "dark": { "ui": { "background": "#101010" } },
                 "light": { "ui": { "background": "#fafafa" } }
             }
         });
-        let fondo = |tema: &str| {
-            esquema["colors"][tema]["ui"]["background"]
-                .as_str()
-                .and_then(hex_a_color)
-        };
 
-        assert_eq!(fondo("dark"), Some(Color(0x10, 0x10, 0x10, 255)));
-        assert_eq!(fondo("light"), Some(Color(0xfa, 0xfa, 0xfa, 255)));
+        assert_eq!(
+            resolver_fondo("dark", Some(&esquema)),
+            Color(0x10, 0x10, 0x10, 255)
+        );
+        assert_eq!(
+            resolver_fondo("light", Some(&esquema)),
+            Color(0xfa, 0xfa, 0xfa, 255)
+        );
+    }
+
+    #[test]
+    fn sin_esquema_o_con_fondo_roto_cae_al_compilado() {
+        assert_eq!(resolver_fondo("dark", None), Color(0x1e, 0x1e, 0x2e, 255));
+        assert_eq!(resolver_fondo("light", None), Color(0xef, 0xf1, 0xf5, 255));
+
+        // Esquema presente pero con el fondo mal escrito: el respaldo, no un pánico.
+        let roto = json!({ "colors": { "dark": { "ui": { "background": "rojo" } } } });
+        assert_eq!(
+            resolver_fondo("dark", Some(&roto)),
+            Color(0x1e, 0x1e, 0x2e, 255)
+        );
+    }
+
+    #[test]
+    fn el_bloqueo_siempre_arranca_oscuro() {
+        // La página del lock fuerza la clase `dark` antes de aplicar el tema del
+        // usuario, así que el fondo nativo tiene que ser el oscuro y no `/etc`.
+        assert_eq!(lock_background_color(), Color(0x1e, 0x1e, 0x2e, 255));
+    }
+
+    #[test]
+    fn el_greeter_sin_config_cae_al_oscuro() {
+        // Mismo caso que `sin_archivos_el_tema_es_oscuro`: sin los archivos de
+        // `/etc`, el greeter arranca con el oscuro compilado.
+        if ruta(THEME_FILE).exists() || ruta(SCHEME_FILE).exists() {
+            return;
+        }
+
+        assert_eq!(greeter_background_color(), Color(0x1e, 0x1e, 0x2e, 255));
     }
 }
