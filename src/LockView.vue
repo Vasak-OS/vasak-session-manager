@@ -42,6 +42,8 @@ const avatar = ref<string | null>(null);
 const field = ref<{ focus: () => boolean } | null>(null);
 
 onMounted(async () => {
+  // Afina el WebKit de la ventana (baja su RAM) apenas monta.
+  void invoke("tune_webview").catch(() => {});
   // Colours, corner radius and font come from the configuration, the same way
   // every application gets them. This is the screen that has to look most like
   // the rest of the system: it is the one people see without asking for it.
