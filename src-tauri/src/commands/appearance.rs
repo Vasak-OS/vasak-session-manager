@@ -21,6 +21,7 @@ use std::path::PathBuf;
 
 use serde::Serialize;
 use serde_json::Value;
+use tauri::webview::Color;
 
 const CONFIG_DIR: &str = "/etc/vasak-session-manager";
 const THEME_FILE: &str = "theme";
@@ -80,10 +81,16 @@ fn leer_acotado(archivo: &str, maximo: u64) -> Option<String> {
     // Acotado en la lectura y no después: `read_to_string` de un archivo enorme
     // ya ocupó la memoria cuando uno se entera del tamaño.
     let mut contenido = String::new();
-    handle.take(maximo + 1).read_to_string(&mut contenido).ok()?;
+    handle
+        .take(maximo + 1)
+        .read_to_string(&mut contenido)
+        .ok()?;
 
     if contenido.len() as u64 > maximo {
-        eprintln!("[apariencia] {} es más grande que el máximo, se ignora", camino.display());
+        eprintln!(
+            "[apariencia] {} es más grande que el máximo, se ignora",
+            camino.display()
+        );
         return None;
     }
 
@@ -123,6 +130,49 @@ pub fn get_appearance() -> Appearance {
     }
 }
 
+/// El fondo del tema activo, para pintar la ventana nativa antes del primer
+/// dibujado del webview.
+///
+/// Sin esto, WebKitGTK muestra su fondo blanco por omisión hasta que la página
+/// pinta: un flash blanco en una pantalla que casi siempre está sobre un fondo
+/// oscuro. El color sale del mismo lugar que `get_appearance` —el esquema de
+/// `/etc` si está, y si no la paleta oscura compilada— para que el fondo nativo
+/// coincida con el que la página termina dibujando.
+pub fn background_color() -> Color {
+    let tema = leer_tema();
+    leer_esquema()
+        .as_ref()
+        .and_then(|esquema| esquema["colors"][&tema]["ui"]["background"].as_str())
+        .and_then(hex_a_color)
+        .unwrap_or_else(|| fondo_compilado(&tema))
+}
+
+/// `#rrggbb` a color opaco. Los esquemas guardan el fondo así; cualquier otra
+/// forma (nombre, `rgba()`, longitud rara) cae al fondo compilado.
+fn hex_a_color(hex: &str) -> Option<Color> {
+    let h = hex.strip_prefix('#')?;
+    // `len()` cuenta bytes: sin el filtro ASCII, un fondo con un carácter
+    // multibyte haría que `&h[0..2]` cortara a mitad de carácter y entrara en
+    // pánico, tumbando el greeter y el lock en el arranque.
+    if !h.is_ascii() || h.len() != 6 {
+        return None;
+    }
+    let r = u8::from_str_radix(&h[0..2], 16).ok()?;
+    let g = u8::from_str_radix(&h[2..4], 16).ok()?;
+    let b = u8::from_str_radix(&h[4..6], 16).ok()?;
+    Some(Color(r, g, b, 255))
+}
+
+/// La misma paleta que trae compilada `style.css` (`--ui-background`), para
+/// cuando no hay esquema en `/etc`.
+fn fondo_compilado(tema: &str) -> Color {
+    if tema == "light" {
+        Color(0xef, 0xf1, 0xf5, 255)
+    } else {
+        Color(0x1e, 0x1e, 0x2e, 255)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -132,7 +182,11 @@ mod tests {
     fn el_tema_acepta_las_dos_palabras_y_nada_mas() {
         assert_eq!(tema_valido("dark"), Some("dark"));
         assert_eq!(tema_valido("light"), Some("light"));
-        assert_eq!(tema_valido("  Dark\n"), Some("dark"), "espacios y mayúsculas");
+        assert_eq!(
+            tema_valido("  Dark\n"),
+            Some("dark"),
+            "espacios y mayúsculas"
+        );
         assert_eq!(tema_valido("oscuro"), None);
         assert_eq!(tema_valido(""), None);
     }
@@ -192,5 +246,51 @@ mod tests {
         }
 
         assert_eq!(leer_tema(), "dark");
+    }
+
+    #[test]
+    fn un_hex_valido_se_vuelve_color_opaco() {
+        assert_eq!(hex_a_color("#1e1e2e"), Some(Color(0x1e, 0x1e, 0x2e, 255)));
+        assert_eq!(hex_a_color("#EFF1F5"), Some(Color(0xef, 0xf1, 0xf5, 255)));
+    }
+
+    #[test]
+    fn un_hex_mal_formado_no_da_color() {
+        assert_eq!(hex_a_color("1e1e2e"), None, "sin #");
+        assert_eq!(hex_a_color("#fff"), None, "corto");
+        assert_eq!(hex_a_color("#1e1e2e80"), None, "con alfa");
+        assert_eq!(hex_a_color("#1e1e2g"), None, "dígito no hex");
+        assert_eq!(hex_a_color(""), None);
+    }
+
+    #[test]
+    fn un_hex_con_caracteres_multibyte_no_hace_panico() {
+        // seis bytes, pero un corte a mitad de la «é»
+        assert_eq!(hex_a_color("#aéaaa"), None);
+    }
+
+    #[test]
+    fn el_fondo_compilado_sigue_al_tema() {
+        assert_eq!(fondo_compilado("light"), Color(0xef, 0xf1, 0xf5, 255));
+        assert_eq!(fondo_compilado("dark"), Color(0x1e, 0x1e, 0x2e, 255));
+        assert_eq!(fondo_compilado("otro"), Color(0x1e, 0x1e, 0x2e, 255));
+    }
+
+    #[test]
+    fn el_fondo_del_esquema_se_lee_del_tema_activo() {
+        let esquema = json!({
+            "colors": {
+                "dark": { "ui": { "background": "#101010" } },
+                "light": { "ui": { "background": "#fafafa" } }
+            }
+        });
+        let fondo = |tema: &str| {
+            esquema["colors"][tema]["ui"]["background"]
+                .as_str()
+                .and_then(hex_a_color)
+        };
+
+        assert_eq!(fondo("dark"), Some(Color(0x10, 0x10, 0x10, 255)));
+        assert_eq!(fondo("light"), Some(Color(0xfa, 0xfa, 0xfa, 255)));
     }
 }
