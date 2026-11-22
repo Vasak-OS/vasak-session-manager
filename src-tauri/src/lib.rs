@@ -1,25 +1,25 @@
-#[path = "./commands/users.rs"]
-mod users;
-#[path = "./commands/sessions.rs"]
-mod sessions;
-#[path = "./commands/auth.rs"]
-mod auth;
-#[path = "./commands/power.rs"]
-mod power;
-#[path = "./commands/keyboard.rs"]
-mod keyboard;
-#[path = "./commands/state.rs"]
-mod state;
-#[path = "./commands/screens.rs"]
-mod screens;
-#[path = "./commands/background.rs"]
-mod background;
 #[path = "./commands/appearance.rs"]
 mod appearance;
+#[path = "./commands/auth.rs"]
+mod auth;
+#[path = "./commands/background.rs"]
+mod background;
+#[path = "./commands/keyboard.rs"]
+mod keyboard;
+mod lock;
+pub mod migracion;
+#[path = "./commands/power.rs"]
+mod power;
+#[path = "./commands/screens.rs"]
+mod screens;
+#[path = "./commands/sessions.rs"]
+mod sessions;
+#[path = "./commands/state.rs"]
+mod state;
+#[path = "./commands/users.rs"]
+mod users;
 #[path = "./commands/webkit.rs"]
 mod webkit;
-pub mod migracion;
-mod lock;
 
 pub use lock::run as run_lock;
 
@@ -84,15 +84,11 @@ pub fn run() {
             // paquete tiene dos binarios: lo que se declara en la
             // configuración lo crea Tauri en los dos, y la pantalla de inicio
             // aparecía encima del bloqueo.
-            tauri::WebviewWindowBuilder::new(
-                app,
-                "main",
-                tauri::WebviewUrl::default(),
-            )
-            .title("vasak-session-manager")
-            .inner_size(800.0, 600.0)
-            .decorations(false)
-            .build()?;
+            tauri::WebviewWindowBuilder::new(app, "main", tauri::WebviewUrl::default())
+                .title("vasak-session-manager")
+                .inner_size(800.0, 600.0)
+                .decorations(false)
+                .build()?;
 
             Ok(())
         })
