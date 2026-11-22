@@ -130,12 +130,13 @@ fn cover_every_monitor(app: &AppHandle, lock: &SessionLock) -> Result<(), String
             .ok_or_else(|| format!("no se pudo leer el monitor {index}"))?;
 
         let label = etiqueta_de(index);
-        let webview = WebviewWindowBuilder::new(app, &label, WebviewUrl::App("index.html#/lock".into()))
-            .title("Vasak lock")
-            .decorations(false)
-            .visible(false)
-            .build()
-            .map_err(|e| format!("no se pudo crear la vista del monitor {index}: {e}"))?;
+        let webview =
+            WebviewWindowBuilder::new(app, &label, WebviewUrl::App("index.html#/lock".into()))
+                .title("Vasak lock")
+                .decorations(false)
+                .visible(false)
+                .build()
+                .map_err(|e| format!("no se pudo crear la vista del monitor {index}: {e}"))?;
 
         let toplevel = webview
             .gtk_window()
@@ -268,7 +269,8 @@ pub fn run() {
             contexto::lock_notifications,
             contexto::lock_media,
             contexto::lock_media_action,
-            wallpaper::lock_background
+            wallpaper::lock_background,
+            crate::webkit::tune_webview
         ])
         .setup(|app| {
             // Antes de crear ninguna ventana: la página la pide apenas monta, y
