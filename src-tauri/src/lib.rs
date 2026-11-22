@@ -4,6 +4,7 @@ mod appearance;
 mod auth;
 #[path = "./commands/background.rs"]
 mod background;
+mod background_color;
 #[path = "./commands/keyboard.rs"]
 mod keyboard;
 mod lock;
