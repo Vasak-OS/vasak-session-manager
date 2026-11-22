@@ -16,6 +16,8 @@ mod screens;
 mod background;
 #[path = "./commands/appearance.rs"]
 mod appearance;
+#[path = "./commands/webkit.rs"]
+mod webkit;
 pub mod migracion;
 mod lock;
 
@@ -74,7 +76,8 @@ pub fn run() {
             screens::get_screens,
             background::get_background,
             background::read_background_video,
-            appearance::get_appearance
+            appearance::get_appearance,
+            webkit::tune_webview
         ])
         .setup(|app| {
             // La ventana se crea acá y no en tauri.conf.json porque este

@@ -268,7 +268,8 @@ pub fn run() {
             contexto::lock_notifications,
             contexto::lock_media,
             contexto::lock_media_action,
-            wallpaper::lock_background
+            wallpaper::lock_background,
+            crate::webkit::tune_webview
         ])
         .setup(|app| {
             // Antes de crear ninguna ventana: la página la pide apenas monta, y
