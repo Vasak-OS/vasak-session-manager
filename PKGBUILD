@@ -12,8 +12,8 @@ license=('MIT')
 # gtk-session-lock es lo que le permite a la pantalla de bloqueo crear las
 # superficies del protocolo ext-session-lock; sin eso no hay bloqueo posible.
 # vasak-splash es el splash de arranque: el greeter le manda `vasak-splashd quit`
-# al pintar y el scriptlet pone a `greeter` en su grupo para poder escribir el
-# socket. Depende de él para que el grupo exista antes del scriptlet.
+# al pintar y un fragmento de sysusers pone a `greeter` en su grupo para poder
+# escribir el socket. Depende de él para que el grupo `vasak-splash` exista.
 depends=('webkit2gtk-4.1' 'gtk3' 'cage' 'greetd' 'vasakos-wallpapers' 'gtk-session-lock' 'pam' 'vasak-splash')
 makedepends=('git' 'cargo' 'bun' 'rust')
 source=("git+${url}.git")
@@ -67,4 +67,11 @@ package() {
     # that survives a reboot.
     install -Dm644 "packaging/$pkgname.tmpfiles.conf" \
         "$pkgdir/usr/lib/tmpfiles.d/$pkgname.conf"
+
+    # Pone a `greeter` en el grupo `vasak-splash` para que pueda escribir el
+    # socket del splash de arranque. Va por sysusers (no por el scriptlet)
+    # porque `greeter` lo crea greetd en un hook post-transacción, posterior al
+    # scriptlet: en una instalación nueva todavía no existiría.
+    install -Dm644 "packaging/$pkgname.sysusers" \
+        "$pkgdir/usr/lib/sysusers.d/$pkgname.conf"
 }

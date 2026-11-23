@@ -59,24 +59,9 @@ _take_over_display_manager() {
     esac
 }
 
-# Pone al usuario `greeter` en el grupo `vasak-splash`.
-#
-# El greeter corre como `greeter` (greetd) y le avisa al splash de arranque que
-# ya dibujó por el socket /run/vasak-splash.sock, que es 0660 root:vasak-splash:
-# sin estar en el grupo no puede escribirlo y el handoff no ocurre. Se hace acá y
-# no por sysusers para no depender del orden entre los drop-ins de greetd,
-# vasak-splash y este paquete. Con guarda: si vasak-splash no está instalado el
-# grupo no existe y no hay nada que cablear.
-_join_splash_group() {
-    getent group vasak-splash >/dev/null 2>&1 || return 0
-    id -u greeter >/dev/null 2>&1 || return 0
-    gpasswd -a greeter vasak-splash >/dev/null 2>&1 || true
-}
-
 post_install() {
     _needs_config && _install_config
     _take_over_display_manager
-    _join_splash_group
     # Fails harmlessly where systemd is not running, such as the chroot the ISO
     # is assembled in.
     systemctl daemon-reload >/dev/null 2>&1 || true
@@ -87,7 +72,6 @@ post_upgrade() {
     # and a display manager somebody chose is kept.
     _needs_config && _install_config
     _take_over_display_manager
-    _join_splash_group
     systemctl daemon-reload >/dev/null 2>&1 || true
 }
 
