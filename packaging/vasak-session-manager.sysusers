@@ -9,5 +9,6 @@
 # systemd-sysusers procesa todos los fragmentos en una sola pasada, así que la
 # membresía se aplica junto con la creación de `greeter` y del grupo, sin
 # depender del orden entre los drop-ins. `m` crea lo que falte, y se reaplica en
-# cada actualización, así que es idempotente.
-m vasak-splash greeter
+# cada actualización, así que es idempotente. En `m` el usuario va primero y el
+# grupo después: `m greeter vasak-splash` mete a `greeter` en `vasak-splash`.
+m greeter vasak-splash
