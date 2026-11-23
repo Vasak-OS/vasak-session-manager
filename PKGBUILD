@@ -1,6 +1,6 @@
 # Maintainer: Joaquin (Pato) Decima <jdecima@vasak.net.ar>
 pkgname=vasak-session-manager
-pkgver=0.3.0
+pkgver=0.10.4
 pkgrel=1
 pkgdesc="VasakOS session manager: display manager / greeter (Rust + Vue + Tauri)"
 arch=('x86_64')
@@ -11,7 +11,10 @@ license=('MIT')
 # vasakos-wallpapers holds the image the login screen is drawn on.
 # gtk-session-lock es lo que le permite a la pantalla de bloqueo crear las
 # superficies del protocolo ext-session-lock; sin eso no hay bloqueo posible.
-depends=('webkit2gtk-4.1' 'gtk3' 'cage' 'greetd' 'vasakos-wallpapers' 'gtk-session-lock' 'pam')
+# vasak-splash es el splash de arranque: el greeter le manda `vasak-splashd quit`
+# al pintar y el scriptlet pone a `greeter` en su grupo para poder escribir el
+# socket. Depende de él para que el grupo exista antes del scriptlet.
+depends=('webkit2gtk-4.1' 'gtk3' 'cage' 'greetd' 'vasakos-wallpapers' 'gtk-session-lock' 'pam' 'vasak-splash')
 makedepends=('git' 'cargo' 'bun' 'rust')
 source=("git+${url}.git")
 sha256sums=('SKIP')

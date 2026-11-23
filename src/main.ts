@@ -1,4 +1,5 @@
 import { sanearUrl } from '@/tools/csp';
+import { invoke } from "@tauri-apps/api/core";
 import { createApp } from "vue";
 import { createPinia } from "pinia";
 import I18n from "@vasakgroup/tauri-plugin-i18n";
@@ -83,3 +84,17 @@ async function cargarTraducciones(): Promise<void> {
 await cargarTraducciones();
 
 app.mount("#app");
+
+// Con el greeter ya montado, avisarle al splash de arranque (vasak-splash) que se
+// retire: le entrega la pantalla en cuanto estamos y no espera su temporizador de
+// seguridad de 20 s. Dos `requestAnimationFrame` para caer después del primer
+// frame pintado y que no quede un negro entre que el splash se va y el greeter
+// aparece. La pantalla de bloqueo no viene del splash de arranque, así que no lo
+// toca. Best-effort: si no hay splash, el comando falla en silencio.
+if (!isLock) {
+	requestAnimationFrame(() =>
+		requestAnimationFrame(() => {
+			void invoke("dismiss_boot_splash").catch(() => {});
+		})
+	);
+}

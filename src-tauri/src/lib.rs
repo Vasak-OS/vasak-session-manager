@@ -15,6 +15,8 @@ mod power;
 mod screens;
 #[path = "./commands/sessions.rs"]
 mod sessions;
+#[path = "./commands/splash.rs"]
+mod splash;
 #[path = "./commands/state.rs"]
 mod state;
 #[path = "./commands/users.rs"]
@@ -78,7 +80,8 @@ pub fn run() {
             background::get_background,
             background::read_background_video,
             appearance::get_appearance,
-            webkit::tune_webview
+            webkit::tune_webview,
+            splash::dismiss_boot_splash
         ])
         .setup(|app| {
             // La ventana se crea acá y no en tauri.conf.json porque este
