@@ -83,20 +83,7 @@ pub fn run() {
             webkit::tune_webview,
             splash::dismiss_boot_splash
         ])
-        .setup(|app| {
-            // La ventana se crea acá y no en tauri.conf.json porque este
-            // paquete tiene dos binarios: lo que se declara en la
-            // configuración lo crea Tauri en los dos, y la pantalla de inicio
-            // aparecía encima del bloqueo.
-            tauri::WebviewWindowBuilder::new(app, "main", tauri::WebviewUrl::default())
-                .title("vasak-session-manager")
-                .inner_size(800.0, 600.0)
-                .decorations(false)
-                .background_color(appearance::greeter_background_color())
-                .build()?;
-
-            Ok(())
-        })
+        .setup(webkit::create_main_window)
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

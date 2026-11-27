@@ -55,3 +55,19 @@ pub fn tune_webview(window: tauri::WebviewWindow) {
     };
     tune_webkit(&webview);
 }
+/// Crea la ventana principal.
+///
+/// Vive acá —y no en `tauri.conf.json` ni embebida en `lib.rs`— porque este
+/// paquete tiene dos binarios y la configuración declarativa crearía la ventana
+/// también en el bloqueo. Además, este glue de GTK/Tauri no se puede ejercitar
+/// sin un display real, así que queda en `commands/` (excluido de cobertura).
+pub fn create_main_window(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
+    tauri::WebviewWindowBuilder::new(app, "main", tauri::WebviewUrl::default())
+        .title("vasak-session-manager")
+        .inner_size(800.0, 600.0)
+        .decorations(false)
+        .background_color(crate::appearance::greeter_background_color())
+        .build()?;
+
+    Ok(())
+}
