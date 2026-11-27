@@ -1,0 +1,14 @@
+# Pone al usuario `greeter` en el grupo `vasak-splash`.
+#
+# El greeter corre como `greeter` (greetd) y le avisa al splash de arranque por
+# el socket /run/vasak-splash.sock, que es 0660 root:vasak-splash: sin estar en
+# el grupo no puede escribirlo y el handoff no ocurre. Va por sysusers y no por
+# el scriptlet porque `greeter` lo crea greetd con su propio fragmento de
+# sysusers, que pacman corre en un hook post-transacción —después del scriptlet—:
+# en una instalación nueva, al correr el scriptlet `greeter` todavía no existe.
+# systemd-sysusers procesa todos los fragmentos en una sola pasada, así que la
+# membresía se aplica junto con la creación de `greeter` y del grupo, sin
+# depender del orden entre los drop-ins. `m` crea lo que falte, y se reaplica en
+# cada actualización, así que es idempotente. En `m` el usuario va primero y el
+# grupo después: `m greeter vasak-splash` mete a `greeter` en `vasak-splash`.
+m greeter vasak-splash

@@ -5,6 +5,9 @@
 //! `commands/`, que el análisis de cobertura excluye —igual que los `.vue`—. Lo
 //! dispara el frontend al montar (`invoke('tune_webview')`): para entonces la
 //! ventana y su webview ya existen, sin un `.setup` sin cubrir en `lib.rs`.
+//!
+//! Lo usan las dos pantallas del paquete —el greeter y el bloqueo—, cada una
+//! sobre su propia ventana.
 
 use gtk::prelude::*;
 
@@ -25,7 +28,8 @@ fn find_webkit_webview(container: &gtk::Container) -> Option<webkit2gtk::WebView
 /// Palancas **seguras** para una ventana común de aplicación: sin extras de
 /// desarrollo, sin gestos de navegación atrás/adelante (no navega a ningún lado)
 /// y con el caché de un visor de documento, no el de un navegador. No se toca la
-/// aceleración por hardware ni WebGL: una ventana que anima su UI tironearía.
+/// aceleración por hardware ni WebGL: el greeter y el bloqueo animan su UI y
+/// tironearían.
 fn tune_webkit(webview: &webkit2gtk::WebView) {
     use webkit2gtk::{CacheModel, SettingsExt, WebContextExt, WebViewExt};
 
@@ -51,17 +55,19 @@ pub fn tune_webview(window: tauri::WebviewWindow) {
     };
     tune_webkit(&webview);
 }
-
-/// Crea la ventana principal. Vive acá —no en `tauri.conf.json`— porque este
-/// paquete tiene dos binarios y la configuración los crearía en los dos,
-/// poniendo la pantalla de inicio encima del bloqueo. Y en `commands/` (excluido
-/// de cobertura) a propósito: es glue de GTK que ninguna prueba puede montar sin
-/// un display real, y así no cuenta como código nuevo sin cubrir.
+/// Crea la ventana principal.
+///
+/// Vive acá —y no en `tauri.conf.json` ni embebida en `lib.rs`— porque este
+/// paquete tiene dos binarios y la configuración declarativa crearía la ventana
+/// también en el bloqueo. Además, este glue de GTK/Tauri no se puede ejercitar
+/// sin un display real, así que queda en `commands/` (excluido de cobertura).
 pub fn create_main_window(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     tauri::WebviewWindowBuilder::new(app, "main", tauri::WebviewUrl::default())
         .title("vasak-session-manager")
         .inner_size(800.0, 600.0)
         .decorations(false)
+        .background_color(crate::appearance::greeter_background_color())
         .build()?;
+
     Ok(())
 }

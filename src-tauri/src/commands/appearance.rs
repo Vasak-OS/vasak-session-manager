@@ -21,6 +21,7 @@ use std::path::PathBuf;
 
 use serde::Serialize;
 use serde_json::Value;
+use tauri::webview::Color;
 
 const CONFIG_DIR: &str = "/etc/vasak-session-manager";
 const THEME_FILE: &str = "theme";
@@ -80,10 +81,16 @@ fn leer_acotado(archivo: &str, maximo: u64) -> Option<String> {
     // Acotado en la lectura y no después: `read_to_string` de un archivo enorme
     // ya ocupó la memoria cuando uno se entera del tamaño.
     let mut contenido = String::new();
-    handle.take(maximo + 1).read_to_string(&mut contenido).ok()?;
+    handle
+        .take(maximo + 1)
+        .read_to_string(&mut contenido)
+        .ok()?;
 
     if contenido.len() as u64 > maximo {
-        eprintln!("[apariencia] {} es más grande que el máximo, se ignora", camino.display());
+        eprintln!(
+            "[apariencia] {} es más grande que el máximo, se ignora",
+            camino.display()
+        );
         return None;
     }
 
@@ -123,6 +130,14 @@ pub fn get_appearance() -> Appearance {
     }
 }
 
+/// Fondo nativo del greeter, para que no se vea el blanco de WebKitGTK antes del
+/// primer dibujado. El greeter corre sin sesión, así que su tema sale de `/etc`,
+/// igual que `get_appearance`. La selección del color vive en
+/// `crate::background_color`, probada aparte de esta lectura de archivos.
+pub fn greeter_background_color() -> Color {
+    crate::background_color::resolver(&leer_tema(), leer_esquema().as_ref())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -132,7 +147,11 @@ mod tests {
     fn el_tema_acepta_las_dos_palabras_y_nada_mas() {
         assert_eq!(tema_valido("dark"), Some("dark"));
         assert_eq!(tema_valido("light"), Some("light"));
-        assert_eq!(tema_valido("  Dark\n"), Some("dark"), "espacios y mayúsculas");
+        assert_eq!(
+            tema_valido("  Dark\n"),
+            Some("dark"),
+            "espacios y mayúsculas"
+        );
         assert_eq!(tema_valido("oscuro"), None);
         assert_eq!(tema_valido(""), None);
     }
@@ -192,5 +211,16 @@ mod tests {
         }
 
         assert_eq!(leer_tema(), "dark");
+    }
+
+    #[test]
+    fn el_greeter_sin_config_cae_al_oscuro() {
+        // Mismo caso que `sin_archivos_el_tema_es_oscuro`: sin los archivos de
+        // `/etc`, el greeter arranca con el oscuro compilado.
+        if ruta(THEME_FILE).exists() || ruta(SCHEME_FILE).exists() {
+            return;
+        }
+
+        assert_eq!(greeter_background_color(), Color(0x1e, 0x1e, 0x2e, 255));
     }
 }

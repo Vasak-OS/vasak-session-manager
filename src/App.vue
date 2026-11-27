@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { invoke } from "@tauri-apps/api/core";
 import { computed, onMounted } from "vue";
+import { invoke } from "@tauri-apps/api/core";
 import { useI18n } from "@vasakgroup/tauri-plugin-i18n";
 import { Avatar } from "@vasakgroup/vue-libvasak";
 import GreeterClock from "@/components/GreeterClock.vue";
@@ -76,6 +77,8 @@ const onVideoError = () => {
 // Afinar el WebKit de la ventana para bajar su consumo (ver commands/webkit.rs).
 onMounted(() => void invoke("tune_webview").catch(() => {}));
 onMounted(load);
+// Afina el WebKit de la ventana (baja su RAM) una vez montada.
+onMounted(() => void invoke("tune_webview").catch(() => {}));
 </script>
 
 <template>
